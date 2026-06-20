@@ -7,9 +7,6 @@ import java.util.Random;
 public class Trainer {
     private static final int FEATURE_DIM = 100;
     private static final int LABEL_DIM = 5;
-    private static final int TOTAL_SAMPLES = 2_000_000;
-    private static final int INFO_SIZE = 1_000_000;
-    private static final int VAL_SIZE = 20_000;
     private static final float MOMENTUM = 0.9f;
 
     private final String dataPath;
@@ -21,6 +18,9 @@ public class Trainer {
     private final float lrDecay;
     private final int lrStepEpochs;
     private final Random rng;
+    private final int totalSamples;
+    private final int trainSize;
+    private final int valSize;
 
     private float[] trainData;
     private float[] trainLabels;
@@ -30,7 +30,8 @@ public class Trainer {
     private int[] valIndices;
 
     public Trainer(String dataPath, String labelPath, int batchSize, int maxEpochs,
-                   int earlyStopPatience, float initLr, float lrDecay, int lrStepEpochs, long seed) {
+                   int earlyStopPatience, float initLr, float lrDecay, int lrStepEpochs,
+                   long seed, int totalSamples, int trainSize, int valSize) {
         this.dataPath = dataPath;
         this.labelPath = labelPath;
         this.batchSize = batchSize;
@@ -40,30 +41,33 @@ public class Trainer {
         this.lrDecay = lrDecay;
         this.lrStepEpochs = lrStepEpochs;
         this.rng = new Random(seed);
+        this.totalSamples = totalSamples;
+        this.trainSize = trainSize;
+        this.valSize = valSize;
     }
 
     public void prepareData() throws IOException {
-        int[] allIndices = new int[TOTAL_SAMPLES];
-        for (int i = 0; i < TOTAL_SAMPLES; i++) {
+        int[] allIndices = new int[totalSamples];
+        for (int i = 0; i < totalSamples; i++) {
             allIndices[i] = i;
         }
         fisherYatesShuffle(allIndices, rng);
 
-        trainIndices = new int[INFO_SIZE];
-        System.arraycopy(allIndices, 0, trainIndices, 0, INFO_SIZE);
+        trainIndices = new int[trainSize];
+        System.arraycopy(allIndices, 0, trainIndices, 0, trainSize);
 
-        valIndices = new int[VAL_SIZE];
-        System.arraycopy(allIndices, INFO_SIZE, valIndices, 0, VAL_SIZE);
+        valIndices = new int[valSize];
+        System.arraycopy(allIndices, trainSize, valIndices, 0, valSize);
 
         int[] sortedTrainIdx = trainIndices.clone();
         Arrays.sort(sortedTrainIdx);
         int[] sortedValIdx = valIndices.clone();
         Arrays.sort(sortedValIdx);
 
-        trainData = new float[INFO_SIZE * FEATURE_DIM];
-        trainLabels = new float[INFO_SIZE * LABEL_DIM];
-        valData = new float[VAL_SIZE * FEATURE_DIM];
-        valLabels = new float[VAL_SIZE * LABEL_DIM];
+        trainData = new float[trainSize * FEATURE_DIM];
+        trainLabels = new float[trainSize * LABEL_DIM];
+        valData = new float[valSize * FEATURE_DIM];
+        valLabels = new float[valSize * LABEL_DIM];
 
         System.out.println("[INFO] Extracting training and validation subsets...");
         BinaryChunkReader.extractSamples(dataPath, labelPath, sortedTrainIdx,
@@ -131,11 +135,11 @@ public class Trainer {
             gradBiases[l] = new float[outDim];
         }
 
-        int[] localTrainIdx = new int[INFO_SIZE];
-        for (int i = 0; i < INFO_SIZE; i++) localTrainIdx[i] = i;
+        int[] localTrainIdx = new int[trainSize];
+        for (int i = 0; i < trainSize; i++) localTrainIdx[i] = i;
 
-        int[] localValIdx = new int[VAL_SIZE];
-        for (int i = 0; i < VAL_SIZE; i++) localValIdx[i] = i;
+        int[] localValIdx = new int[valSize];
+        for (int i = 0; i < valSize; i++) localValIdx[i] = i;
 
         float[][][] bestWeights = null;
         float[][] bestBiases = null;
@@ -149,8 +153,8 @@ public class Trainer {
 
             fisherYatesShuffle(localTrainIdx, rng);
 
-            for (int batchStart = 0; batchStart < INFO_SIZE; batchStart += batchSize) {
-                int batchEnd = Math.min(batchStart + batchSize, INFO_SIZE);
+            for (int batchStart = 0; batchStart < trainSize; batchStart += batchSize) {
+                int batchEnd = Math.min(batchStart + batchSize, trainSize);
                 int actualBatchSize = batchEnd - batchStart;
 
                 model.zeroGradients(gradWeights, gradBiases);
