@@ -13,7 +13,6 @@ public class Trainer {
     private static final String ANSI_MAGENTA = "\u001B[35m";
     private static final String ANSI_CYAN = "\u001B[36m";
     private static final String ANSI_BOLD = "\u001B[1m";
-
     private static final int FEATURE_DIM = 100;
     private static final int LABEL_DIM = 5;
     private static final float MOMENTUM = 0.9f;
@@ -215,10 +214,10 @@ public class Trainer {
             System.out.println();
 
             float trainLoss = computeLoss(model, trainData, trainLabels, localTrainIdx,
-                    labelOffset, labelDim, input, target, activations, zs);
+                    labelOffset, labelDim, input, target, activations, zs, ANSI_GREEN, "[TRAIN LOSS]");
 
             float valLoss = computeLoss(model, valData, valLabels, localValIdx,
-                    labelOffset, labelDim, input, target, activations, zs);
+                    labelOffset, labelDim, input, target, activations, zs, ANSI_MAGENTA, "[VALIDATE]");
 
             long epochTime = System.currentTimeMillis() - epochStart;
 
@@ -267,11 +266,16 @@ public class Trainer {
                               float[] data, float[] labels, int[] indices,
                               int labelOffset, int labelDim,
                               float[] input, float[] target,
-                              float[][] activations, float[][] zs) {
+                              float[][] activations, float[][] zs,
+                              String colorCode, String prefix) {
         float sumSq = 0.0f;
         int n = indices.length;
         int outputLayerIdx = model.getLayerSizes().length - 1;
         float[] output = activations[outputLayerIdx];
+
+        int barLength = 50;
+        int updateInterval = Math.max(1, n / 100);
+        int processed = 0;
 
         for (int i = 0; i < n; i++) {
             int idx = indices[i];
@@ -286,6 +290,23 @@ public class Trainer {
             for (int t = 0; t < labelDim; t++) {
                 float diff = output[t] - target[t];
                 sumSq += diff * diff;
+            }
+
+            processed++;
+            if (processed % updateInterval == 0 || processed == n) {
+                int progress = (int) (((double) processed / n) * 100);
+                int filled = (int) ((progress / 100.0) * barLength);
+                StringBuilder bar = new StringBuilder();
+                for (int k = 0; k < barLength; k++) {
+                    if (k < filled) bar.append("█");
+                    else bar.append("_");
+                }
+                System.out.print("\r" + ANSI_YELLOW + prefix + " " + ANSI_RESET +
+                        "[" + colorCode + bar.toString() + ANSI_RESET + "] " +
+                        progress + "% | Samples: " + processed + "/" + n);
+                if (processed == n) {
+                    System.out.println();
+                }
             }
         }
         return sumSq / n;
