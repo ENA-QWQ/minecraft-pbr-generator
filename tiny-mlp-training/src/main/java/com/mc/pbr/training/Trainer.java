@@ -214,7 +214,7 @@ public class Trainer {
             System.out.println();
 
             float trainLoss = computeLoss(model, trainData, trainLabels, localTrainIdx,
-                    labelOffset, labelDim, input, target, activations, zs, ANSI_GREEN, "[TRAIN LOSS]");
+                    labelOffset, labelDim, input, target, activations, zs, ANSI_YELLOW, "[TRAIN LOSS]");
 
             float valLoss = computeLoss(model, valData, valLabels, localValIdx,
                     labelOffset, labelDim, input, target, activations, zs, ANSI_MAGENTA, "[VALIDATE]");
