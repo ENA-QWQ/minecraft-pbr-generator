@@ -9,6 +9,11 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 public class LabPBRValidator {
+    private static final String ANSI_RESET = "\u001B[0m";
+    private static final String ANSI_CYAN = "\u001B[36m";
+    private static final String ANSI_YELLOW = "\u001B[33m";
+    private static final String ANSI_GREEN = "\u001B[32m";
+    private static final String ANSI_BOLD = "\u001B[1m";
 
     private static final double MAX_OVERFLOW_RATIO = 0.05;
 
@@ -22,35 +27,45 @@ public class LabPBRValidator {
         Path tempRoot = Files.createTempDirectory("labpbr_");
         tempRoot.toFile().deleteOnExit();
 
-        for (File entry : entries) {
+        int barLength = 50;
+        int total = entries.length;
+        for (int i = 0; i < total; i++) {
+            File entry = entries[i];
+            int progress = (int) (((double) (i + 1) / total) * 100);
+            int filled = (int) ((progress / 100.0) * barLength);
+            StringBuilder bar = new StringBuilder();
+            for (int k = 0; k < barLength; k++) {
+                if (k < filled) bar.append("█");
+                else bar.append("_");
+            }
+            System.out.print("\r" + ANSI_CYAN + "[VALIDATE] " + ANSI_RESET +
+                    "[" + ANSI_GREEN + bar.toString() + ANSI_RESET + "] " +
+                    progress + "% | Scanning: " + (i + 1) + "/" + total);
+
             if (entry.isDirectory()) {
-                System.out.println("[INFO] Found resource pack directory: " + entry.getName());
                 collectFromPackDir(entry, validTriples);
             } else if (entry.getName().toLowerCase().endsWith(".zip")) {
-                System.out.println("[INFO] Found resource pack zip: " + entry.getName());
                 Path packDir = Files.createDirectory(tempRoot.resolve(entry.getName() + "_dir"));
                 try {
                     unzip(entry, packDir.toFile());
                     collectFromPackDir(packDir.toFile(), validTriples);
                 } catch (IOException e) {
-                    System.out.println("[WARNING] Failed to unzip: " + entry.getName());
+                    // Silent fail during progress bar update
                 }
             }
         }
-
+        System.out.println();
         return validTriples;
     }
 
     private void collectFromPackDir(File packDir, List<TextureTriple> triples) {
         File blockDir = new File(packDir, "assets/minecraft/textures/block");
         if (!blockDir.isDirectory()) {
-            System.out.println("[WARNING] Standard texture directory not found in pack: " + blockDir.getAbsolutePath());
             return;
         }
 
         File[] files = blockDir.listFiles((d, n) -> n.toLowerCase().endsWith(".png"));
         if (files == null || files.length == 0) {
-            System.out.println("[WARNING] No PNG files in texture directory");
             return;
         }
 
@@ -94,12 +109,8 @@ public class LabPBRValidator {
                 if (x * x + y * y > 1.01) overflow++;
             }
             double ratio = (double) overflow / (w * h);
-            if (ratio > MAX_OVERFLOW_RATIO) {
-                return false;
-            }
-            return true;
+            return ratio <= MAX_OVERFLOW_RATIO;
         } catch (IOException e) {
-            System.out.println("[WARNING] Failed to read normal map: " + file);
             return false;
         }
     }
@@ -125,6 +136,7 @@ public class LabPBRValidator {
 
     public static class TextureTriple {
         public final File base, normal, specular;
+
         public TextureTriple(File b, File n, File s) {
             this.base = b;
             this.normal = n;

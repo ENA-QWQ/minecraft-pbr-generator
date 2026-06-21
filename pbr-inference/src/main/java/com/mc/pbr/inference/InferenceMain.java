@@ -1,11 +1,27 @@
 package com.mc.pbr.inference;
-
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 
 public class InferenceMain {
+    public static final String ANSI_RESET = "\u001B[0m";
+    public static final String ANSI_RED = "\u001B[31m";
+    public static final String ANSI_GREEN = "\u001B[32m";
+    public static final String ANSI_YELLOW = "\u001B[33m";
+    public static final String ANSI_BLUE = "\u001B[34m";
+    public static final String ANSI_CYAN = "\u001B[36m";
+    public static final String ANSI_BOLD = "\u001B[1m";
+
     public static void main(String[] args) {
+        System.out.println(ANSI_GREEN + ANSI_BOLD);
+        System.out.println("███╗   ███╗ ██████╗██████╗  ██████╗  ");
+        System.out.println("████╗ ████║██╔════╝██╔══██╗██╔════╝  ");
+        System.out.println("██╔████╔██║██║     ██████╔╝██║  ███╗ ");
+        System.out.println("██║╚██╔╝██║██║     ██╔═══╝ ██║   ██║ ");
+        System.out.println("██║ ╚═╝ ██║╚██████╗██║     ╚██████╔╝ ");
+        System.out.println("╚═╝     ╚═╝ ╚═════╝╚═╝      ╚═════╝  ");
+        System.out.println(ANSI_RESET);
+
         Map<String, String> params = parseArgs(args);
         if (params.containsKey("help")) {
             printHelp();
@@ -14,7 +30,7 @@ public class InferenceMain {
 
         String inputPath = params.get("input");
         if (inputPath == null) {
-            System.err.println("[ERROR] Missing required parameter: -input <path>");
+            System.err.println(ANSI_RED + ANSI_BOLD + "[ERROR] " + ANSI_RESET + "Missing required parameter: -input <path>");
             printHelp();
             return;
         }
@@ -25,7 +41,6 @@ public class InferenceMain {
         boolean pixelate = Boolean.parseBoolean(params.getOrDefault("pixelate", "false"));
         float baseSmoothness = Float.parseFloat(params.getOrDefault("smoothness", "0.2"));
         float baseMetallic = Float.parseFloat(params.getOrDefault("metallic", "0.0"));
-
         boolean invertHeight = Boolean.parseBoolean(params.getOrDefault("invert-height", "true"));
         boolean invertNormalY = Boolean.parseBoolean(params.getOrDefault("invert-normal-y", "false"));
         float heightStrength = Float.parseFloat(params.getOrDefault("height-strength", "1.2"));
@@ -34,28 +49,31 @@ public class InferenceMain {
         int heightSmoothRadius = Integer.parseInt(params.getOrDefault("height-smooth", "2"));
         float normPercentile = Float.parseFloat(params.getOrDefault("norm-percentile", "2.0"));
 
-        System.out.println("[INFO] LabPBR Inference Pipeline Initialized");
-        System.out.println("[INFO] Input: " + inputPath);
-        System.out.println("[INFO] Output Dir: " + new File(outputDir).getAbsolutePath());
-        System.out.println("[INFO] Params -> Strength: " + strength + ", HeightRange: [" + heightMin + ", " + heightMax + "]");
+        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + ANSI_BOLD + "Inference Configuration:" + ANSI_RESET);
+        System.out.printf("  %-15s: %s\n", "Input", inputPath);
+        System.out.printf("  %-15s: %s\n", "Output Dir", new File(outputDir).getAbsolutePath());
+        System.out.printf("  %-15s: %s\n", "Model", modelPath);
+        System.out.printf("  %-15s: %.2f\n", "Strength", strength);
+        System.out.printf("  %-15s: [%.2f, %.2f]\n", "Height Range", heightMin, heightMax);
 
         try {
-            System.out.println("[INFO] Loading Height Model...");
-            ModelLoader heightModel = new ModelLoader(modelPath);
-
-            System.out.println("[INFO] Starting inference pipeline...");
             long startTime = System.currentTimeMillis();
 
+            System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Loading Height Model...");
+            ModelLoader heightModel = new ModelLoader(modelPath);
+
+            System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Starting inference pipeline...");
             PBRInferenceEngine engine = new PBRInferenceEngine(heightModel, strength,
                     pixelate, baseSmoothness, baseMetallic, invertHeight, invertNormalY,
                     heightStrength, heightMin, heightMax, heightSmoothRadius, normPercentile);
+
             engine.process(inputPath, outputDir);
 
             long endTime = System.currentTimeMillis();
-            System.out.println("[DONE] Pipeline completed in " + (endTime - startTime) + " ms");
+            System.out.println(ANSI_GREEN + ANSI_BOLD + "[DONE] " + ANSI_RESET + "Pipeline completed in " + (endTime - startTime) + " ms");
 
         } catch (Exception e) {
-            System.err.println("[ERROR] Inference failed: " + e.getMessage());
+            System.err.println(ANSI_RED + ANSI_BOLD + "[ERROR] " + ANSI_RESET + "Inference failed: " + e.getMessage());
             e.printStackTrace();
             System.exit(1);
         }

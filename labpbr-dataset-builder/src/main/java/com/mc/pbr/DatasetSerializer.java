@@ -3,6 +3,10 @@ package com.mc.pbr;
 import java.io.*;
 
 public class DatasetSerializer {
+    private static final String ANSI_RESET = "\u001B[0m";
+    private static final String ANSI_CYAN = "\u001B[36m";
+    private static final String ANSI_GREEN = "\u001B[32m";
+    private static final String ANSI_BOLD = "\u001B[1m";
 
     private DataOutputStream dataOut;
     private DataOutputStream labelOut;
@@ -28,7 +32,7 @@ public class DatasetSerializer {
 
     public void writeSample(float[] feature, float[] label) throws IOException {
         for (float v : feature) dataOut.writeFloat(v);
-        for (float v : label)   labelOut.writeFloat(v);
+        for (float v : label) labelOut.writeFloat(v);
         writtenSamples++;
     }
 
@@ -43,7 +47,9 @@ public class DatasetSerializer {
             raf.writeInt(writtenSamples);
         }
 
-        System.out.printf("[INFO] Streaming write completed. Total samples: %d, feature dim: %d, label dim: %d%n",
+        System.out.printf(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Streaming write completed. Total samples: " +
+                        ANSI_GREEN + "%d" + ANSI_RESET + ", feature dim: " + ANSI_GREEN + "%d" + ANSI_RESET +
+                        ", label dim: " + ANSI_GREEN + "%d%n" + ANSI_RESET,
                 writtenSamples, featureDim, labelDim);
     }
 }

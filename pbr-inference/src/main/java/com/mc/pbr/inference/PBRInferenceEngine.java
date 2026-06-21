@@ -1,5 +1,4 @@
 package com.mc.pbr.inference;
-
 import javax.imageio.ImageIO;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -10,6 +9,11 @@ import java.io.IOException;
 import java.util.Arrays;
 
 public class PBRInferenceEngine {
+    private static final String ANSI_RESET = "\u001B[0m";
+    private static final String ANSI_GREEN = "\u001B[32m";
+    private static final String ANSI_YELLOW = "\u001B[33m";
+    private static final String ANSI_CYAN = "\u001B[36m";
+
     private final ModelLoader heightModel;
     private final float strength;
     private final boolean pixelate;
@@ -22,7 +26,6 @@ public class PBRInferenceEngine {
     private final float heightMax;
     private final int heightSmoothRadius;
     private final float normPercentile;
-
     private final float[] featureFloat = new float[100];
     private final double[] featureDouble = new double[100];
     private final HeightToNormalConverter normalConverter = new HeightToNormalConverter();
@@ -93,7 +96,10 @@ public class PBRInferenceEngine {
         int[] normalPixels = new int[totalPixels];
         int[] matPixels = new int[totalPixels];
 
-        System.out.println("[INFO] Pass 1: Extracting features and running MLP...");
+        System.out.print(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pass 1: Feature extraction & MLP inference... ");
+        long pass1Start = System.currentTimeMillis();
+        int updateInterval = Math.max(1, totalPixels / 50);
+
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 int idx = 0;
@@ -101,13 +107,11 @@ public class PBRInferenceEngine {
                     for (int dx = -2; dx <= 2; dx++) {
                         int sx = (x + dx + w) % w;
                         int sy = (y + dy + h) % h;
-
                         int pixel = pixels[sy * w + sx];
                         float r = ((pixel >> 16) & 0xFF) / 255.0f;
                         float g = ((pixel >> 8) & 0xFF) / 255.0f;
                         float b = (pixel & 0xFF) / 255.0f;
                         float gray = 0.299f * r + 0.587f * g + 0.114f * b;
-
                         featureFloat[idx++] = r;
                         featureFloat[idx++] = g;
                         featureFloat[idx++] = b;
@@ -128,10 +132,27 @@ public class PBRInferenceEngine {
                 int outS = clamp(smoothness * 255.0f);
                 int outM = clamp(metallic * 255.0f);
                 matPixels[y * w + x] = 0xFF000000 | (outS << 16) | (outM << 8);
+
+                int currentPixel = y * w + x + 1;
+                if (currentPixel % updateInterval == 0 || currentPixel == totalPixels) {
+                    int progress = (int) (((double) currentPixel / totalPixels) * 100);
+                    int barLength = 30;
+                    int filled = (int) ((progress / 100.0) * barLength);
+                    StringBuilder bar = new StringBuilder();
+                    for (int i = 0; i < barLength; i++) {
+                        if (i < filled) bar.append("█");
+                        else bar.append("_");
+                    }
+                    System.out.print("\r" + ANSI_CYAN + "[INFO] " + ANSI_RESET +
+                            "[ " + ANSI_GREEN + bar.toString() + ANSI_RESET + " ] " +
+                            progress + "% | Pixel: " + currentPixel + "/" + totalPixels);
+                }
             }
         }
+        System.out.println();
+        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pass 1 completed in " + (System.currentTimeMillis() - pass1Start) + " ms");
 
-        System.out.println("[INFO] Pass 2: Percentile normalization & Anti-truncation mapping...");
+        System.out.print(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pass 2: Normalization & Post-processing... ");
         applyPercentileNormalization(heightMap, totalPixels);
 
         if (invertHeight) {
@@ -146,7 +167,6 @@ public class PBRInferenceEngine {
 
         float stretchedMin = Float.MAX_VALUE;
         float stretchedMax = -Float.MAX_VALUE;
-
         for (int i = 0; i < totalPixels; i++) {
             float stretchedH = 0.5f + (heightMap[i] - 0.5f) * heightStrength;
             heightMap[i] = stretchedH;
@@ -162,13 +182,14 @@ public class PBRInferenceEngine {
             float finalH = heightMin + (heightMap[i] - stretchedMin) / stretchedRange * targetRange;
             heightMap[i] = finalH;
         }
+        System.out.println("Done.");
 
-        System.out.println("[INFO] Converting height map to normal map...");
+        System.out.print(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Converting height map to normal map... ");
         normalConverter.convert(heightMap, w, h, strength, invertNormalY, normalPixels);
+        System.out.println("Done.");
 
         if (scale > 1 && pixelate) {
-            System.out.println("[INFO] Applying hard-edge pixelation for low-resolution assets...");
-
+            System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Applying hard-edge pixelation...");
             float[] smallHeight = new float[origW * origH];
             float[] tempHeight = new float[totalPixels];
             scaler.scale(heightMap, w, h, origW, origH, smallHeight);
@@ -192,23 +213,20 @@ public class PBRInferenceEngine {
 
         saveImage(normalPixels, w, h, new File(outDirFile, "texture_n.png"));
         saveImage(matPixels, w, h, new File(outDirFile, "texture_s.png"));
-        System.out.println("[SAVE] Results saved to: " + outDirFile.getAbsolutePath());
+        System.out.println(ANSI_GREEN + "[SAVE] " + ANSI_RESET + "Results saved to: " + outDirFile.getAbsolutePath());
     }
 
     private void applyPercentileNormalization(float[] arr, int n) {
         float[] sorted = arr.clone();
         Arrays.sort(sorted);
-
         int lowIdx = (int) (n * (normPercentile / 100.0f));
         int highIdx = (int) (n * (1.0f - normPercentile / 100.0f));
         if (lowIdx >= n) lowIdx = n - 1;
         if (highIdx >= n) highIdx = n - 1;
-
         float minVal = sorted[lowIdx];
         float maxVal = sorted[highIdx];
         float range = maxVal - minVal;
         if (range < 1e-5f) range = 1e-5f;
-
         for (int i = 0; i < n; i++) {
             arr[i] = (arr[i] - minVal) / range;
             arr[i] = Math.max(0.0f, Math.min(1.0f, arr[i]));
@@ -219,7 +237,6 @@ public class PBRInferenceEngine {
         float[] dst = new float[src.length];
         int kernelSize = (2 * radius + 1) * (2 * radius + 1);
         float invKernel = 1.0f / kernelSize;
-
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 float sum = 0.0f;

@@ -9,6 +9,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class LabPBRDataExtractor {
+    private static final String ANSI_RESET = "\u001B[0m";
+    private static final String ANSI_RED = "\u001B[31m";
+    private static final String ANSI_YELLOW = "\u001B[33m";
+    private static final String ANSI_BOLD = "\u001B[1m";
+
     private static final int TARGET_SIZE = 128;
     private static final int PATCH_RADIUS = 2;
 
@@ -21,7 +26,7 @@ public class LabPBRDataExtractor {
             int w = baseImg.getWidth();
             int h = baseImg.getHeight();
             if (w != TARGET_SIZE || h != TARGET_SIZE) {
-                System.out.println("[WARNING] Resized image size abnormal: " + triple.base.getName());
+                System.out.println(ANSI_YELLOW + "[WARNING] " + ANSI_RESET + "Resized image size abnormal: " + triple.base.getName());
                 return null;
             }
 
@@ -47,7 +52,7 @@ public class LabPBRDataExtractor {
 
             return new ExtractionResult(features, labels);
         } catch (IOException e) {
-            System.out.println("[ERROR] Failed to extract texture triple: " + triple.base);
+            System.out.println(ANSI_RED + ANSI_BOLD + "[ERROR] " + ANSI_RESET + "Failed to extract texture triple: " + triple.base);
             return null;
         }
     }

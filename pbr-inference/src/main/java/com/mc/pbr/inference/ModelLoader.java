@@ -1,14 +1,11 @@
 package com.mc.pbr.inference;
-
 import com.mc.pbr.training.TinyMLP;
 import java.io.FileInputStream;
 import java.io.ObjectInputStream;
-import java.util.Arrays;
 
 public class ModelLoader {
     private final TinyMLP mlp;
     private final int numLayers;
-
     private final float[][] activations;
     private final float[][] zs;
     private final double[] outputBuffer;
@@ -37,19 +34,14 @@ public class ModelLoader {
         }
 
         this.outputBuffer = new double[layerSizes[numLayers]];
-
-        System.out.println("[INFO] Loading TinyMLP, layer structure: " + Arrays.toString(layerSizes));
     }
 
     public double[] predict(float[] featuresFloat, double[] featuresDouble) {
-
         mlp.forward(featuresFloat, activations, zs);
-
         float[] lastActivation = activations[numLayers];
         for (int i = 0; i < lastActivation.length; i++) {
             outputBuffer[i] = lastActivation[i];
         }
-
         return outputBuffer;
     }
 }

@@ -31,12 +31,12 @@ java -jar labpbr-dataset-builder-1.0.0.jar [选项]
 
 参数：
 
-| 参数 | 含义 | 默认值 |
-| --- | --- | --- |
-| --inputDir | 资源包目录 | ./resourcepacks |
-| --outputDir | 输出目录 | ./dataset |
-| --maxSamples | 最大采样数 | 20000000 |
-| --seed | 随机种子 | 系统时间 |
+| 参数           | 含义    | 默认值             |
+|--------------|-------|-----------------|
+| --inputDir   | 资源包目录 | ./resourcepacks |
+| --outputDir  | 输出目录  | ./dataset       |
+| --maxSamples | 最大采样数 | 20000000        |
+| --seed       | 随机种子  | 系统时间            |
 
 #### 模块二：训练
 

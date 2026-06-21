@@ -3,7 +3,6 @@ package com.mc.pbr;
 import java.util.*;
 
 public class DataAugmenter {
-
     private static final int PATCH_SIZE = 5;
 
     public float[] applyAugmentation(float[] flatFeature, int type) {
@@ -13,13 +12,26 @@ public class DataAugmenter {
         float[][][] patch = reshapeFeature(flatFeature);
         float[][][] transformed;
         switch (type) {
-            case 1: transformed = rotate90Clockwise(patch); break;
-            case 2: transformed = rotate180(patch); break;
-            case 3: transformed = rotate270Clockwise(patch); break;
-            case 4: transformed = flipHorizontal(patch); break;
-            case 5: transformed = flipVertical(patch); break;
-            case 6: transformed = flipVertical(flipHorizontal(patch)); break;
-            default: return flatFeature.clone();
+            case 1:
+                transformed = rotate90Clockwise(patch);
+                break;
+            case 2:
+                transformed = rotate180(patch);
+                break;
+            case 3:
+                transformed = rotate270Clockwise(patch);
+                break;
+            case 4:
+                transformed = flipHorizontal(patch);
+                break;
+            case 5:
+                transformed = flipVertical(patch);
+                break;
+            case 6:
+                transformed = flipVertical(flipHorizontal(patch));
+                break;
+            default:
+                return flatFeature.clone();
         }
         return flattenFeature(transformed);
     }
