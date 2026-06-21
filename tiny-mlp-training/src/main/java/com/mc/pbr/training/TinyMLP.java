@@ -6,7 +6,6 @@ import java.util.Random;
 
 public class TinyMLP implements Serializable {
     private static final long serialVersionUID = 1L;
-
     private final int[] layerSizes;
     private final float[][][] weights;
     private final float[][] biases;
