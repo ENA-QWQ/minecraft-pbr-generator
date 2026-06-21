@@ -20,10 +20,7 @@
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>com.github.haifengl</groupId>
-            <artifactId>smile-core</artifactId>
-        </dependency>
+        <!-- smile-core removed – not used in inference code -->
     </dependencies>
 
     <build>
