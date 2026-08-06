@@ -1,6 +1,9 @@
 package com.mc.pbr;
 
-import java.io.*;
+import com.mc.pbr.config.ConfigLoader;
+import com.mc.pbr.config.PBRConfig;
+import java.io.File;
+import java.io.IOException;
 import java.util.*;
 
 public class Main {
@@ -12,17 +15,9 @@ public class Main {
     private static final String ANSI_CYAN = "\u001B[36m";
     private static final String ANSI_BOLD = "\u001B[1m";
 
-    private static final Map<String, String> ALIAS = new HashMap<>();
-
-    static {
-        ALIAS.put("i", "inputDir");
-        ALIAS.put("o", "outputDir");
-        ALIAS.put("m", "maxSamples");
-        ALIAS.put("s", "seed");
-        ALIAS.put("h", "help");
-    }
-
     public static void main(String[] args) {
+        PBRConfig config = ConfigLoader.load(args);
+
         System.out.println(ANSI_MAGENTA + ANSI_BOLD);
         System.out.println("███╗   ███╗ ██████╗██████╗  ██████╗ ");
         System.out.println("████╗ ████║██╔════╝██╔══██╗██╔════╝ ");
@@ -32,30 +27,22 @@ public class Main {
         System.out.println("╚═╝     ╚═╝ ╚═════╝╚═╝      ╚═════╝ ");
         System.out.println(ANSI_RESET);
 
-        Map<String, String> params = parseArgs(args);
-        if (params.containsKey("help")) {
-            printHelp();
-            return;
-        }
+        PBRConfig.DatasetBuilderConfig db = config.getDatasetBuilder();
+        PBRConfig.GlobalConfig gb = config.getGlobal();
 
-        String inputDir = params.getOrDefault("inputDir", "./resourcepacks");
-        String outputDir = params.getOrDefault("outputDir", "./dataset");
-        int maxSamples = Integer.parseInt(params.getOrDefault("maxSamples", "20000000"));
-        long seed = Long.parseLong(params.getOrDefault("seed", String.valueOf(System.currentTimeMillis())));
-
-        File root = new File(inputDir);
+        File root = new File(db.getInputDir());
         if (!root.isDirectory()) {
             System.err.println(ANSI_RED + ANSI_BOLD + "[ERROR] " + ANSI_RESET + "Input directory does not exist: " + root.getAbsolutePath());
             System.exit(1);
         }
-        new File(outputDir).mkdirs();
+        new File(db.getOutputDir()).mkdirs();
 
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pipeline execution started.");
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + ANSI_BOLD + "Configuration:" + ANSI_RESET);
         System.out.printf("  %-12s: %s\n", "Input", root.getAbsolutePath());
-        System.out.printf("  %-12s: %s\n", "Output", new File(outputDir).getAbsolutePath());
-        System.out.printf("  %-12s: %d\n", "MaxSamples", maxSamples);
-        System.out.printf("  %-12s: %d\n", "Seed", seed);
+        System.out.printf("  %-12s: %s\n", "Output", new File(db.getOutputDir()).getAbsolutePath());
+        System.out.printf("  %-12s: %d\n", "MaxSamples", db.getMaxSamples());
+        System.out.printf("  %-12s: %d\n", "Seed", gb.getSeed());
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Strategy: All texture groups contribute evenly, stream-write as we go");
 
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Step 1/4: Validating and cleaning data...");
@@ -77,12 +64,12 @@ public class Main {
             return;
         }
 
-        final int FEATURE_DIM = 100;
-        final int LABEL_DIM = 5;
+        final int FEATURE_DIM = gb.getFeatureDim();
+        final int LABEL_DIM = gb.getLabelDim();
 
         int[] quotas = new int[packCount];
-        int baseQuota = maxSamples / packCount;
-        int remainder = maxSamples % packCount;
+        int baseQuota = db.getMaxSamples() / packCount;
+        int remainder = db.getMaxSamples() % packCount;
         for (int i = 0; i < packCount; i++) {
             quotas[i] = baseQuota + (i < remainder ? 1 : 0);
         }
@@ -93,8 +80,8 @@ public class Main {
         DatasetSerializer serializer = new DatasetSerializer();
         try {
             serializer.open(
-                    new File(outputDir, "train_data.bin"),
-                    new File(outputDir, "train_labels.bin"),
+                    new File(db.getOutputDir(), "train_data.bin"),
+                    new File(db.getOutputDir(), "train_labels.bin"),
                     FEATURE_DIM,
                     LABEL_DIM
             );
@@ -108,7 +95,7 @@ public class Main {
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Step 2+3/4: Extracting per texture, random sampling and writing to disk...");
         LabPBRDataExtractor extractor = new LabPBRDataExtractor();
         DataAugmenter augmenter = new DataAugmenter();
-        Random rng = new Random(seed);
+        Random rng = new Random(gb.getSeed());
         int totalWritten = 0;
         int processedTextures = 0;
         int barLength = 50;
@@ -168,41 +155,7 @@ public class Main {
         }
 
         System.out.printf(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Total samples actually written: " + ANSI_GREEN + "%d%n" + ANSI_RESET, totalWritten);
-        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Files saved to: " + outputDir);
+        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Files saved to: " + db.getOutputDir());
         System.out.println(ANSI_GREEN + ANSI_BOLD + "[INFO] " + ANSI_RESET + "Pipeline execution completed successfully.");
-    }
-
-    private static Map<String, String> parseArgs(String[] args) {
-        Map<String, String> map = new HashMap<>();
-        for (int i = 0; i < args.length; i++) {
-            String arg = args[i];
-            if (arg.startsWith("--")) {
-                String key = arg.substring(2);
-                if (key.equals("help")) {
-                    map.put("help", "true");
-                } else if (i + 1 < args.length) {
-                    map.put(key, args[++i]);
-                }
-            } else if (arg.startsWith("-")) {
-                String shortKey = arg.substring(1);
-                String key = ALIAS.getOrDefault(shortKey, shortKey);
-                if (key.equals("help")) {
-                    map.put("help", "true");
-                } else if (i + 1 < args.length) {
-                    map.put(key, args[++i]);
-                }
-            }
-        }
-        return map;
-    }
-
-    private static void printHelp() {
-        System.out.println("Usage: java -jar labpbr-dataset-builder.jar [options]");
-        System.out.println("Options:");
-        System.out.println("  -i, --inputDir <path>       Resource pack directory (default: ./resourcepacks)");
-        System.out.println("  -o, --outputDir <path>      Output directory (default: ./dataset)");
-        System.out.println("  -m, --maxSamples <int>      Maximum number of samples (default: 20000000)");
-        System.out.println("  -s, --seed <long>           Random seed (default: system time)");
-        System.out.println("  -h, --help                  Show this help message");
     }
 }

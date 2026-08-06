@@ -13,20 +13,26 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
-        <smile.version>3.1.1</smile.version>
+        <jackson.version>2.15.3</jackson.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>com.github.haifengl</groupId>
-                <artifactId>smile-core</artifactId>
-                <version>${smile.version}</version>
+                <groupId>com.fasterxml.jackson.dataformat</groupId>
+                <artifactId>jackson-dataformat-yaml</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>${jackson.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
 
     <modules>
+        <module>pbr-common</module>
         <module>labpbr-dataset-builder</module>
         <module>tiny-mlp-training</module>
         <module>pbr-inference</module>
