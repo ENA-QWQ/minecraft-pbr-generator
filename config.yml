@@ -16,7 +16,7 @@ training:
   label_path: "./dataset/train_labels.bin"
   model_output: "./height_model.ser"
   total_samples: 1000000
-  train_split: 800000
+  train_split: 100000
   val_split: 20000
   hyperparams:
     batch_size: 128
@@ -25,7 +25,7 @@ training:
     learning_rate: 0.005
     lr_decay: 0.95
     lr_step: 10
-    layers: [100, 64, 32, 1]
+    layers: [100, 32, 16, 1]
 
 inference:
   model_path: "./height_model.ser"
@@ -39,7 +39,7 @@ inference:
     strength: 1.5
     min: 0.1
     max: 1.0
-    smooth_radius: 2
+    smooth_radius: 4
     norm_percentile: 1.5
   normal:
-    invert_y: false
+    invert_y: true
