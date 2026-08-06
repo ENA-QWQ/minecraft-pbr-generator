@@ -2,7 +2,6 @@ package com.mc.pbr.config;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import java.io.File;
@@ -12,7 +11,6 @@ import java.util.Map;
 public class ConfigLoader {
 
     private static final ObjectMapper MAPPER = new ObjectMapper(new YAMLFactory())
-            .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     public static PBRConfig load(String[] args) {
@@ -32,6 +30,22 @@ public class ConfigLoader {
             } catch (Exception e) {
                 System.err.println("[ERROR] Failed to load config file: " + configPath);
                 e.printStackTrace();
+                System.exit(1);
+            }
+        } else {
+            File defaultConfig = new File("config.yml");
+            if (defaultConfig.exists()) {
+                try {
+                    config = MAPPER.readValue(defaultConfig, PBRConfig.class);
+                    System.out.println("[INFO] Auto-loaded config.yml from working directory.");
+                } catch (Exception e) {
+                    System.err.println("[ERROR] Failed to load default config.yml");
+                    e.printStackTrace();
+                    System.exit(1);
+                }
+            } else {
+                System.err.println("[ERROR] No config file specified and default config.yml not found in working directory.");
+                System.err.println("Please either provide --config <path> or place config.yml in the working directory.");
                 System.exit(1);
             }
         }
@@ -82,9 +96,9 @@ public class ConfigLoader {
         }
 
         PBRConfig.InferenceConfig inf = config.getInference();
+        if (map.containsKey("m")) inf.setModelPath(map.get("m"));
         if (map.containsKey("i")) inf.setModelPath(map.get("i"));
         if (map.containsKey("o")) inf.setOutputDir(map.get("o"));
-        if (map.containsKey("m")) inf.setModelPath(map.get("m"));
         if (map.containsKey("s")) inf.setNormalStrength(Float.parseFloat(map.get("s")));
         if (map.containsKey("p")) inf.setPixelate(Boolean.parseBoolean(map.get("p")));
         if (map.containsKey("sm")) inf.setBaseSmoothness(Float.parseFloat(map.get("sm")));
