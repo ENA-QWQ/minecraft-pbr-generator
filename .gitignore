@@ -37,4 +37,8 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
 /resourcepacks/
+/dataset/
+height_model.ser
+/output/
