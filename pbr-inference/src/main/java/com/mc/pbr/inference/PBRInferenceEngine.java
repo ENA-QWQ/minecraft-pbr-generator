@@ -108,8 +108,12 @@ public class PBRInferenceEngine {
         System.out.print(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pass 1: Feature extraction & MLP inference... ");
         long pass1Start = System.currentTimeMillis();
 
+        int batchSize = Math.min(1024, totalPixels);
         float[] allFeatures = new float[totalPixels * featureDim];
         int idx = 0;
+        int updateInterval = Math.max(1, totalPixels / 50);
+        int processed = 0;
+
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 for (int dy = -2; dy <= 2; dy++) {
@@ -127,8 +131,23 @@ public class PBRInferenceEngine {
                         allFeatures[idx++] = gray;
                     }
                 }
+                processed++;
+                if (processed % updateInterval == 0 || processed == totalPixels) {
+                    int progress = (int) (((double) processed / totalPixels) * 100);
+                    int barLength = 30;
+                    int filled = (int) ((progress / 100.0) * barLength);
+                    StringBuilder bar = new StringBuilder();
+                    for (int i = 0; i < barLength; i++) {
+                        if (i < filled) bar.append("█");
+                        else bar.append("_");
+                    }
+                    System.out.print("\r" + ANSI_CYAN + "[INFO] " + ANSI_RESET +
+                            "[ " + ANSI_GREEN + bar.toString() + ANSI_RESET + " ] " +
+                            progress + "% | Pixel: " + processed + "/" + totalPixels);
+                }
             }
         }
+        System.out.println();
 
         float[] allHeights = new float[totalPixels];
         backend.forwardBatch(allFeatures, allHeights, totalPixels);
@@ -146,7 +165,7 @@ public class PBRInferenceEngine {
             matPixels[i] = 0xFF000000 | (outS << 16) | (outM << 8);
         }
 
-        System.out.println("Done. (" + (System.currentTimeMillis() - pass1Start) + " ms)");
+        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pass 1 completed in " + (System.currentTimeMillis() - pass1Start) + " ms");
 
         System.out.print(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pass 2: Normalization & Post-processing... ");
         applyPercentileNormalization(heightMap, totalPixels);
