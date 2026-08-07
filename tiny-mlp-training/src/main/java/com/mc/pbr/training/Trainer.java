@@ -292,20 +292,9 @@ public class Trainer {
         float[] biases = backend.getBiases();
         try (java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(
                 new java.io.FileOutputStream(path))) {
-            oos.writeObject(new ModelData(backend.getLayerSizes(), weights, biases));
+            oos.writeObject(new com.mc.pbr.training.ModelData(backend.getLayerSizes(), weights, biases));
         }
         System.out.println(ANSI_GREEN + "[SAVE] " + ANSI_RESET + "Model saved to " + path);
     }
 
-    static class ModelData implements java.io.Serializable {
-        private static final long serialVersionUID = 1L;
-        public final int[] layerSizes;
-        public final float[] weights;
-        public final float[] biases;
-        ModelData(int[] layerSizes, float[] weights, float[] biases) {
-            this.layerSizes = layerSizes;
-            this.weights = weights;
-            this.biases = biases;
-        }
-    }
 }
