@@ -105,7 +105,7 @@ public class PBRInferenceEngine {
         int[] normalPixels = new int[totalPixels];
         int[] matPixels = new int[totalPixels];
 
-        System.out.print(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Extracting features & GPU inference... ");
+        System.out.print(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pass 1: Feature extraction & MLP inference... ");
         long pass1Start = System.currentTimeMillis();
 
         float[] allFeatures = new float[totalPixels * featureDim];
