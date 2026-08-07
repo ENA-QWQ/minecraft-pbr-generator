@@ -36,6 +36,8 @@
         <module>labpbr-dataset-builder</module>
         <module>tiny-mlp-training</module>
         <module>pbr-inference</module>
+        <module>pbr-computing</module>
+        <module>pbr-opencl-native</module>
     </modules>
 
     <build>

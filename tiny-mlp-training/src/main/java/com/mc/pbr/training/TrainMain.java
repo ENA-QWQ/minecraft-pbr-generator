@@ -14,26 +14,28 @@ public class TrainMain {
 
     public static void main(String[] args) {
         PBRConfig config = ConfigLoader.load(args);
-
-        System.out.println(ANSI_CYAN + ANSI_BOLD);
-        System.out.println("███╗   ███╗ ██████╗██████╗  ██████╗  ");
-        System.out.println("████╗ ████║██╔════╝██╔══██╗██╔════╝  ");
-        System.out.println("██╔████╔██║██║     ██████╔╝██║  ███╗ ");
-        System.out.println("██║╚██╔╝██║██║     ██╔═══╝ ██║   ██║ ");
-        System.out.println("██║ ╚═╝ ██║╚██████╗██║     ╚██████╔╝ ");
-        System.out.println("╚═╝     ╚═╝ ╚═════╝╚═╝      ╚═════╝  ");
-        System.out.println(ANSI_RESET);
+        String backendType = extractBackend(args);
 
         PBRConfig.TrainingConfig train = config.getTraining();
         PBRConfig.HyperparamsConfig hp = train.getHyperparams();
 
         if (train.getTrainSplit() + train.getValSplit() > train.getTotalSamples()) {
-            System.err.println(ANSI_RED + ANSI_BOLD + "[ERROR] " + ANSI_RESET + "train-size + val-size cannot exceed total-samples");
+            System.err.println(ANSI_RED + ANSI_BOLD + "[ERROR] " + ANSI_RESET +
+                    "train-size + val-size cannot exceed total-samples");
             System.exit(1);
         }
 
-        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pipeline execution started.");
-        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Data: " + train.getDataPath() + " | " + train.getLabelPath());
+        System.out.println(ANSI_CYAN + ANSI_BOLD);
+        System.out.println("████╗   ███╗ ██████╗████╗  ██████╗ ");
+        System.out.println("████╗ ████║██╔════╝██╔══██╗██╔════╝ ");
+        System.out.println("██╔████╔██║██║     ██████╔╝██║  ███╗");
+        System.out.println("██║╚██╔╝██║██║     ██╔═══╝ ██║   ██║");
+        System.out.println("██║ ╚═╝ ██║╚██████╗██║     ╚██████╔╝");
+        System.out.println("╚═╝     ╚═╝ ╚═════╝╚═╝      ╚═════╝ ");
+        System.out.println(ANSI_RESET);
+
+        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Backend: " + backendType.toUpperCase());
+        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Data: " + train.getDataPath());
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Output: " + train.getModelOutput());
 
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + ANSI_BOLD + "Hyperparameters:" + ANSI_RESET);
@@ -69,15 +71,27 @@ public class TrainMain {
                     train.getTotalSamples(),
                     train.getTrainSplit(),
                     train.getValSplit(),
-                    hp.getLayers()
+                    hp.getLayers(),
+                    backendType
             );
             trainer.prepareData();
             trainer.train(train.getModelOutput());
-            System.out.println(ANSI_GREEN + ANSI_BOLD + "[INFO] " + ANSI_RESET + "Pipeline execution completed successfully.");
+            System.out.println(ANSI_GREEN + ANSI_BOLD + "[INFO] " + ANSI_RESET +
+                    "Pipeline execution completed successfully.");
         } catch (Exception e) {
-            System.err.println(ANSI_RED + ANSI_BOLD + "[ERROR] " + ANSI_RESET + "Pipeline execution failed.");
+            System.err.println(ANSI_RED + ANSI_BOLD + "[ERROR] " + ANSI_RESET +
+                    "Pipeline execution failed.");
             e.printStackTrace();
             System.exit(1);
         }
+    }
+
+    private static String extractBackend(String[] args) {
+        for (int i = 0; i < args.length; i++) {
+            if (("--backend".equals(args[i]) || "-backend".equals(args[i])) && i + 1 < args.length) {
+                return args[i + 1];
+            }
+        }
+        return "cpu";
     }
 }

@@ -3,49 +3,26 @@ package com.mc.pbr.config;
 import java.util.Arrays;
 
 public class PBRConfig {
-
     private GlobalConfig global = new GlobalConfig();
     private DatasetBuilderConfig datasetBuilder = new DatasetBuilderConfig();
     private TrainingConfig training = new TrainingConfig();
     private InferenceConfig inference = new InferenceConfig();
 
-    public GlobalConfig getGlobal() {
-        return global;
-    }
-
-    public void setGlobal(GlobalConfig global) {
-        this.global = global;
-    }
-
-    public DatasetBuilderConfig getDatasetBuilder() {
-        return datasetBuilder;
-    }
-
-    public void setDatasetBuilder(DatasetBuilderConfig datasetBuilder) {
-        this.datasetBuilder = datasetBuilder;
-    }
-
-    public TrainingConfig getTraining() {
-        return training;
-    }
-
-    public void setTraining(TrainingConfig training) {
-        this.training = training;
-    }
-
-    public InferenceConfig getInference() {
-        return inference;
-    }
-
-    public void setInference(InferenceConfig inference) {
-        this.inference = inference;
-    }
+    public GlobalConfig getGlobal() { return global; }
+    public void setGlobal(GlobalConfig global) { this.global = global; }
+    public DatasetBuilderConfig getDatasetBuilder() { return datasetBuilder; }
+    public void setDatasetBuilder(DatasetBuilderConfig datasetBuilder) { this.datasetBuilder = datasetBuilder; }
+    public TrainingConfig getTraining() { return training; }
+    public void setTraining(TrainingConfig training) { this.training = training; }
+    public InferenceConfig getInference() { return inference; }
+    public void setInference(InferenceConfig inference) { this.inference = inference; }
 
     public static class GlobalConfig {
         private long seed = 42;
         private int featureDim = 100;
         private int labelDim = 5;
         private int patchSize = 5;
+        private String backend = "cpu";
 
         public long getSeed() { return seed; }
         public void setSeed(long seed) { this.seed = seed; }
@@ -55,6 +32,8 @@ public class PBRConfig {
         public void setLabelDim(int labelDim) { this.labelDim = labelDim; }
         public int getPatchSize() { return patchSize; }
         public void setPatchSize(int patchSize) { this.patchSize = patchSize; }
+        public String getBackend() { return backend; }
+        public void setBackend(String backend) { this.backend = backend; }
     }
 
     public static class DatasetBuilderConfig {

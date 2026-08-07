@@ -1,45 +1,45 @@
 global:
   seed: 11451
-  feature_dim: 100
-  label_dim: 5
-  patch_size: 5
+  featureDim: 100
+  labelDim: 5
+  patchSize: 5
 
-dataset_builder:
-  input_dir: "./resourcepacks"
-  output_dir: "./dataset"
-  max_samples: 120000
-  target_texture_size: 128
-  normal_overflow_ratio: 0.5
+datasetBuilder:
+  inputDir: "./resourcepacks"
+  outputDir: "./dataset"
+  maxSamples: 120000
+  targetTextureSize: 128
+  normalOverflowRatio: 0.5
 
 training:
-  data_path: "./dataset/train_data.bin"
-  label_path: "./dataset/train_labels.bin"
-  model_output: "./height_model.ser"
-  total_samples: 120000
-  train_split: 100000
-  val_split: 20000
+  dataPath: "./dataset/train_data.bin"
+  labelPath: "./dataset/train_labels.bin"
+  modelOutput: "./height_model.ser"
+  totalSamples: 120000
+  trainSplit: 100000
+  valSplit: 20000
   hyperparams:
-    batch_size: 128
+    batchSize: 128
     epochs: 100
     patience: 8
-    learning_rate: 0.005
-    lr_decay: 0.95
-    lr_step: 10
+    learningRate: 0.005
+    lrDecay: 0.95
+    lrStep: 10
     layers: [100, 32, 16, 1]
 
 inference:
-  model_path: "./height_model.ser"
-  output_dir: "./output"
-  normal_strength: 8.0
+  modelPath: "./height_model.ser"
+  outputDir: "./output"
+  normalStrength: 8.0
   pixelate: false
-  base_smoothness: 0.3
-  base_metallic: 0.1
+  baseSmoothness: 0.3
+  baseMetallic: 0.1
   height:
     invert: true
     strength: 1.5
     min: 0.1
     max: 1.0
-    smooth_radius: 4
-    norm_percentile: 1.5
+    smoothRadius: 4
+    normPercentile: 1.5
   normal:
-    invert_y: true
+    invertY: true

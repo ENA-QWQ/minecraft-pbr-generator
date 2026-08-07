@@ -15,18 +15,20 @@ public class InferenceMain {
 
     public static void main(String[] args) {
         PBRConfig config = ConfigLoader.load(args);
+        String backendType = extractBackend(args);
 
         System.out.println(ANSI_GREEN + ANSI_BOLD);
-        System.out.println("███╗   ███╗ ██████╗██████╗  ██████╗  ");
-        System.out.println("████╗ ████║██╔════╝██╔══██╗██╔════╝  ");
-        System.out.println("██╔████╔██║██║     ██████╔╝██║  ███╗ ");
-        System.out.println("██║╚██╔╝██║██║     ██╔═══╝ ██║   ██║ ");
-        System.out.println("██║ ╚═╝ ██║╚██████╗██║     ╚██████╔╝ ");
-        System.out.println("╚═╝     ╚═╝ ╚═════╝╚═╝      ╚═════╝  ");
+        System.out.println("██╗   ██╗ ██████╗████╗  ██████╗ ");
+        System.out.println("████╗ ████║██╔════╝██╔══██╗██╔════╝ ");
+        System.out.println("██╔████╔██║██║     ██████╔╝██║  ███╗");
+        System.out.println("██║╚██╔╝██║██║     ██╔═══╝ ██║   ██║");
+        System.out.println("██║ ╚═╝ ██║╚██████╗██║     ╚██████╔╝");
+        System.out.println("╚═╝     ╚═╝ ╚═════╝╚═╝      ╚═════╝ ");
         System.out.println(ANSI_RESET);
 
         PBRConfig.InferenceConfig inf = config.getInference();
 
+        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Backend: " + backendType.toUpperCase());
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + ANSI_BOLD + "Inference Configuration:" + ANSI_RESET);
         System.out.printf("  %-15s: %s\n", "Output Dir", new File(inf.getOutputDir()).getAbsolutePath());
         System.out.printf("  %-15s: %s\n", "Model", inf.getModelPath());
@@ -37,11 +39,11 @@ public class InferenceMain {
             long startTime = System.currentTimeMillis();
 
             System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Loading Height Model...");
-            ModelLoader heightModel = new ModelLoader(inf.getModelPath());
+            ModelLoader modelLoader = new ModelLoader(inf.getModelPath());
 
             System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Starting inference pipeline...");
             PBRInferenceEngine engine = new PBRInferenceEngine(
-                    heightModel,
+                    modelLoader,
                     inf.getNormalStrength(),
                     inf.isPixelate(),
                     inf.getBaseSmoothness(),
@@ -52,19 +54,14 @@ public class InferenceMain {
                     inf.getHeight().getMin(),
                     inf.getHeight().getMax(),
                     inf.getHeight().getSmoothRadius(),
-                    inf.getHeight().getNormPercentile()
+                    inf.getHeight().getNormPercentile(),
+                    backendType
             );
 
-            String inputPath = null;
-            for (int i = 0; i < args.length; i++) {
-                String arg = args[i];
-                if (("-i".equals(arg) || "--input".equals(arg)) && i + 1 < args.length) {
-                    inputPath = args[++i];
-                    break;
-                }
-            }
+            String inputPath = extractInput(args);
             if (inputPath == null) {
-                System.err.println(ANSI_RED + ANSI_BOLD + "[ERROR] " + ANSI_RESET + "Missing required parameter: -input <path>");
+                System.err.println(ANSI_RED + ANSI_BOLD + "[ERROR] " + ANSI_RESET +
+                        "Missing required parameter: -input <path>");
                 System.exit(1);
                 return;
             }
@@ -72,12 +69,32 @@ public class InferenceMain {
             engine.process(inputPath, inf.getOutputDir());
 
             long endTime = System.currentTimeMillis();
-            System.out.println(ANSI_GREEN + ANSI_BOLD + "[DONE] " + ANSI_RESET + "Pipeline completed in " + (endTime - startTime) + " ms");
+            System.out.println(ANSI_GREEN + ANSI_BOLD + "[DONE] " + ANSI_RESET +
+                    "Pipeline completed in " + (endTime - startTime) + " ms");
 
         } catch (Exception e) {
-            System.err.println(ANSI_RED + ANSI_BOLD + "[ERROR] " + ANSI_RESET + "Inference failed: " + e.getMessage());
+            System.err.println(ANSI_RED + ANSI_BOLD + "[ERROR] " + ANSI_RESET +
+                    "Inference failed: " + e.getMessage());
             e.printStackTrace();
             System.exit(1);
         }
+    }
+
+    private static String extractBackend(String[] args) {
+        for (int i = 0; i < args.length; i++) {
+            if (("--backend".equals(args[i]) || "-backend".equals(args[i])) && i + 1 < args.length) {
+                return args[i + 1];
+            }
+        }
+        return "cpu";
+    }
+
+    private static String extractInput(String[] args) {
+        for (int i = 0; i < args.length; i++) {
+            if (("-i".equals(args[i]) || "--input".equals(args[i])) && i + 1 < args.length) {
+                return args[i + 1];
+            }
+        }
+        return null;
     }
 }

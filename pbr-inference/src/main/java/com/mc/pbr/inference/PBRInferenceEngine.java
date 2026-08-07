@@ -1,4 +1,7 @@
 package com.mc.pbr.inference;
+
+import com.mc.pbr.computing.ComputingBackend;
+import com.mc.pbr.computing.BackendFactory;
 import javax.imageio.ImageIO;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -6,7 +9,6 @@ import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
 import java.io.File;
 import java.io.IOException;
-import java.util.Arrays;
 
 public class PBRInferenceEngine {
     private static final String ANSI_RESET = "\u001B[0m";
@@ -14,7 +16,7 @@ public class PBRInferenceEngine {
     private static final String ANSI_YELLOW = "\u001B[33m";
     private static final String ANSI_CYAN = "\u001B[36m";
 
-    private final ModelLoader heightModel;
+    private final ComputingBackend backend;
     private final float strength;
     private final boolean pixelate;
     private final float baseSmoothness;
@@ -26,17 +28,25 @@ public class PBRInferenceEngine {
     private final float heightMax;
     private final int heightSmoothRadius;
     private final float normPercentile;
-    private final float[] featureFloat = new float[100];
-    private final double[] featureDouble = new double[100];
+    private final int featureDim;
+    private final int labelDim;
     private final HeightToNormalConverter normalConverter = new HeightToNormalConverter();
     private final NearestNeighborScaler scaler = new NearestNeighborScaler();
 
-    public PBRInferenceEngine(ModelLoader heightModel, float strength, boolean pixelate,
+    public PBRInferenceEngine(ModelLoader modelLoader, float strength, boolean pixelate,
                               float baseSmoothness, float baseMetallic,
                               boolean invertHeight, boolean invertNormalY,
                               float heightStrength, float heightMin, float heightMax,
-                              int heightSmoothRadius, float normPercentile) {
-        this.heightModel = heightModel;
+                              int heightSmoothRadius, float normPercentile,
+                              String backendType) {
+        this.backend = BackendFactory.createFromWeights(
+                backendType,
+                modelLoader.getLayerSizes(),
+                modelLoader.getWeights(),
+                modelLoader.getBiases()
+        );
+        this.featureDim = backend.getFeatureDim();
+        this.labelDim = backend.getLabelDim();
         this.strength = strength;
         this.pixelate = pixelate;
         this.baseSmoothness = baseSmoothness;
@@ -58,11 +68,12 @@ public class PBRInferenceEngine {
         if (origImg == null) throw new IOException("Unsupported image format: " + inputPath);
 
         if (origImg.getType() != BufferedImage.TYPE_INT_ARGB) {
-            BufferedImage convertedImg = new BufferedImage(origImg.getWidth(), origImg.getHeight(), BufferedImage.TYPE_INT_ARGB);
-            Graphics2D g2d = convertedImg.createGraphics();
+            BufferedImage converted = new BufferedImage(origImg.getWidth(), origImg.getHeight(),
+                    BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2d = converted.createGraphics();
             g2d.drawImage(origImg, 0, 0, null);
             g2d.dispose();
-            origImg = convertedImg;
+            origImg = converted;
         }
 
         int origW = origImg.getWidth();
@@ -71,9 +82,7 @@ public class PBRInferenceEngine {
         int targetW = origW, targetH = origH;
         int scale = 1;
         if (origW < 128 || origH < 128) {
-            while (origW * scale < 128 || origH * scale < 128) {
-                scale *= 2;
-            }
+            while (origW * scale < 128 || origH * scale < 128) scale *= 2;
             targetW = origW * scale;
             targetH = origH * scale;
         }
@@ -96,13 +105,13 @@ public class PBRInferenceEngine {
         int[] normalPixels = new int[totalPixels];
         int[] matPixels = new int[totalPixels];
 
-        System.out.print(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pass 1: Feature extraction & MLP inference... ");
+        System.out.print(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Extracting features & GPU inference... ");
         long pass1Start = System.currentTimeMillis();
-        int updateInterval = Math.max(1, totalPixels / 50);
 
+        float[] allFeatures = new float[totalPixels * featureDim];
+        int idx = 0;
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                int idx = 0;
                 for (int dy = -2; dy <= 2; dy++) {
                     for (int dx = -2; dx <= 2; dx++) {
                         int sx = (x + dx + w) % w;
@@ -112,61 +121,45 @@ public class PBRInferenceEngine {
                         float g = ((pixel >> 8) & 0xFF) / 255.0f;
                         float b = (pixel & 0xFF) / 255.0f;
                         float gray = 0.299f * r + 0.587f * g + 0.114f * b;
-                        featureFloat[idx++] = r;
-                        featureFloat[idx++] = g;
-                        featureFloat[idx++] = b;
-                        featureFloat[idx++] = gray;
+                        allFeatures[idx++] = r;
+                        allFeatures[idx++] = g;
+                        allFeatures[idx++] = b;
+                        allFeatures[idx++] = gray;
                     }
-                }
-
-                double[] geomOut = heightModel.predict(featureFloat, featureDouble);
-                heightMap[y * w + x] = (float) geomOut[0];
-
-                float gray = 0.299f * (((pixels[y * w + x] >> 16) & 0xFF) / 255.0f) +
-                        0.587f * (((pixels[y * w + x] >> 8) & 0xFF) / 255.0f) +
-                        0.114f * ((pixels[y * w + x] & 0xFF) / 255.0f);
-
-                float smoothness = baseSmoothness + gray * 0.3f;
-                float metallic = (((pixels[y * w + x] >> 0) & 0xFF) / 255.0f) > 0.5f ? baseMetallic : 0.0f;
-
-                int outS = clamp(smoothness * 255.0f);
-                int outM = clamp(metallic * 255.0f);
-                matPixels[y * w + x] = 0xFF000000 | (outS << 16) | (outM << 8);
-
-                int currentPixel = y * w + x + 1;
-                if (currentPixel % updateInterval == 0 || currentPixel == totalPixels) {
-                    int progress = (int) (((double) currentPixel / totalPixels) * 100);
-                    int barLength = 30;
-                    int filled = (int) ((progress / 100.0) * barLength);
-                    StringBuilder bar = new StringBuilder();
-                    for (int i = 0; i < barLength; i++) {
-                        if (i < filled) bar.append("█");
-                        else bar.append("_");
-                    }
-                    System.out.print("\r" + ANSI_CYAN + "[INFO] " + ANSI_RESET +
-                            "[ " + ANSI_GREEN + bar.toString() + ANSI_RESET + " ] " +
-                            progress + "% | Pixel: " + currentPixel + "/" + totalPixels);
                 }
             }
         }
-        System.out.println();
-        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pass 1 completed in " + (System.currentTimeMillis() - pass1Start) + " ms");
+
+        float[] allHeights = new float[totalPixels];
+        backend.forwardBatch(allFeatures, allHeights, totalPixels);
+
+        for (int i = 0; i < totalPixels; i++) {
+            heightMap[i] = allHeights[i];
+            int pixel = pixels[i];
+            float gray = 0.299f * (((pixel >> 16) & 0xFF) / 255.0f) +
+                    0.587f * (((pixel >> 8) & 0xFF) / 255.0f) +
+                    0.114f * ((pixel & 0xFF) / 255.0f);
+            float smoothness = baseSmoothness + gray * 0.3f;
+            float metallic = (((pixel >> 0) & 0xFF) / 255.0f) > 0.5f ? baseMetallic : 0.0f;
+            int outS = clamp(smoothness * 255.0f);
+            int outM = clamp(metallic * 255.0f);
+            matPixels[i] = 0xFF000000 | (outS << 16) | (outM << 8);
+        }
+
+        System.out.println("Done. (" + (System.currentTimeMillis() - pass1Start) + " ms)");
 
         System.out.print(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pass 2: Normalization & Post-processing... ");
         applyPercentileNormalization(heightMap, totalPixels);
 
         if (invertHeight) {
-            for (int i = 0; i < totalPixels; i++) {
-                heightMap[i] = 1.0f - heightMap[i];
-            }
+            for (int i = 0; i < totalPixels; i++) heightMap[i] = 1.0f - heightMap[i];
         }
 
         if (heightSmoothRadius > 0) {
             applyBoxBlur(heightMap, w, h, heightSmoothRadius);
         }
 
-        float stretchedMin = Float.MAX_VALUE;
-        float stretchedMax = -Float.MAX_VALUE;
+        float stretchedMin = Float.MAX_VALUE, stretchedMax = -Float.MAX_VALUE;
         for (int i = 0; i < totalPixels; i++) {
             float stretchedH = 0.5f + (heightMap[i] - 0.5f) * heightStrength;
             heightMap[i] = stretchedH;
@@ -179,8 +172,7 @@ public class PBRInferenceEngine {
         float targetRange = heightMax - heightMin;
 
         for (int i = 0; i < totalPixels; i++) {
-            float finalH = heightMin + (heightMap[i] - stretchedMin) / stretchedRange * targetRange;
-            heightMap[i] = finalH;
+            heightMap[i] = heightMin + (heightMap[i] - stretchedMin) / stretchedRange * targetRange;
         }
         System.out.println("Done.");
 
@@ -194,13 +186,11 @@ public class PBRInferenceEngine {
             float[] tempHeight = new float[totalPixels];
             scaler.scale(heightMap, w, h, origW, origH, smallHeight);
             scaler.scale(smallHeight, origW, origH, w, h, tempHeight);
-
             for (int i = 0; i < totalPixels; i++) {
                 int pixel = normalPixels[i];
                 int outA = clamp(tempHeight[i] * 191.0f + 64.0f);
                 normalPixels[i] = (pixel & 0x00FFFFFF) | (outA << 24);
             }
-
             int[] smallMat = new int[origW * origH];
             int[] tempMat = new int[totalPixels];
             scaler.scale(matPixels, w, h, origW, origH, smallMat);
@@ -214,11 +204,13 @@ public class PBRInferenceEngine {
         saveImage(normalPixels, w, h, new File(outDirFile, "texture_n.png"));
         saveImage(matPixels, w, h, new File(outDirFile, "texture_s.png"));
         System.out.println(ANSI_GREEN + "[SAVE] " + ANSI_RESET + "Results saved to: " + outDirFile.getAbsolutePath());
+
+        backend.close();
     }
 
     private void applyPercentileNormalization(float[] arr, int n) {
         float[] sorted = arr.clone();
-        Arrays.sort(sorted);
+        java.util.Arrays.sort(sorted);
         int lowIdx = (int) (n * (normPercentile / 100.0f));
         int highIdx = (int) (n * (1.0f - normPercentile / 100.0f));
         if (lowIdx >= n) lowIdx = n - 1;

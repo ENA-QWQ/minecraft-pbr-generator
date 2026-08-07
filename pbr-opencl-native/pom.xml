@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.mc.pbr</groupId>
+        <artifactId>pbr-parent</artifactId>
+        <version>1.1.0</version>
+    </parent>
+
+    <artifactId>pbr-opencl-native</artifactId>
+    <packaging>jar</packaging>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.mc.pbr</groupId>
+            <artifactId>pbr-computing</artifactId>
+            <version>1.1.0</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <artifactId>maven-clean-plugin</artifactId>
+                <version>3.2.0</version>
+                <configuration>
+                    <filesets>
+                        <fileset>
+                            <directory>${project.basedir}/target/classes</directory>
+                            <includes>
+                                <include>**/*.so</include>
+                                <include>**/*.dll</include>
+                                <include>**/*.dylib</include>
+                            </includes>
+                        </fileset>
+                    </filesets>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>compile-c</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>gcc</executable>
+                            <workingDirectory>${project.basedir}</workingDirectory>
+                            <arguments>
+                                <argument>-shared</argument>
+                                <argument>-std=c99</argument>
+                                <argument>-O2</argument>
+                                <argument>-Wall</argument>
+                                <argument>-I${env.JAVA_HOME}/include</argument>
+                                <argument>-I${env.JAVA_HOME}/include/win32</argument>
+                                <argument>src/main/c/jni_bridge.c</argument>
+                                <argument>src/main/c/ocl_backend.c</argument>
+                                <argument>-o</argument>
+                                <argument>${project.basedir}/target/classes/pbr_ocl.dll</argument>
+                                <argument>-lOpenCL</argument>
+                                <argument>-DCL_TARGET_OPENCL_VERSION=300</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.0</version>
+                <executions>
+                    <execution>
+                        <id>copy-native-libs</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/target/classes</directory>
+                                    <includes>
+                                        <include>**/*.so</include>
+                                        <include>**/*.dll</include>
+                                        <include>**/*.dylib</include>
+                                    </includes>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

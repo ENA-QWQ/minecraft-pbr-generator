@@ -42,6 +42,14 @@ public class TinyMLP implements Serializable {
         return layerSizes;
     }
 
+    public float[][][] getWeights() {
+        return weights;
+    }
+
+    public float[][] getBiases() {
+        return biases;
+    }
+
     public void forward(float[] input, float[][] activations, float[][] zs) {
         int numLayers = layerSizes.length - 1;
         activations[0] = input;
@@ -171,12 +179,5 @@ public class TinyMLP implements Serializable {
             }
             System.arraycopy(savedBiases[l], 0, biases[l], 0, biases[l].length);
         }
-    }
-    public float[][][] getWeights() {
-        return weights;
-    }
-
-    public float[][] getBiases() {
-        return biases;
     }
 }
