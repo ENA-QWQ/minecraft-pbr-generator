@@ -6,15 +6,19 @@ __kernel void forward_kernel(
     int g_batchSize,
     int g_numLayers,
     __global const int* g_layerDims,
-    __global float* g_hidden
+    __global float* g_hidden,
+    int g_maxMidSize
 ) {
     int sampleId = get_global_id(0);
     if (sampleId >= g_batchSize) return;
 
     int weightOff = 0;
     int biasOff = 0;
+    int sampleOffset = sampleId * g_maxMidSize;
+    int cumOffset = 0;
+
     __global const float* in = g_input + sampleId * g_layerDims[0];
-    __global float* out = g_hidden + sampleId * g_layerDims[1];
+    __global float* out = g_hidden + sampleOffset;
 
     for (int l = 0; l < g_numLayers; l++) {
         int inDim = g_layerDims[l];
@@ -32,8 +36,9 @@ __kernel void forward_kernel(
         }
 
         in = out;
+        cumOffset += outDim;
         if (l < g_numLayers - 1) {
-            out = g_hidden + sampleId * g_layerDims[l + 2];
+            out = g_hidden + sampleOffset + cumOffset;
         }
         weightOff += inDim * outDim;
         biasOff += outDim;
@@ -41,7 +46,7 @@ __kernel void forward_kernel(
 
     int outDim = g_layerDims[g_numLayers];
     for (int i = 0; i < outDim; i++) {
-        g_output[sampleId * outDim + i] = out[i];
+        g_output[sampleId * outDim + i] = in[i];
     }
 }
 
@@ -55,12 +60,14 @@ __kernel void backward_kernel(
     int g_batchSize,
     int g_numLayers,
     __global const int* g_layerDims,
-    __global float* g_hidden
+    __global float* g_hidden,
+    int g_maxMidSize
 ) {
     int sampleId = get_global_id(0);
     if (sampleId >= g_batchSize) return;
 
     int outDim = g_layerDims[g_numLayers];
+    int sampleOffset = sampleId * g_maxMidSize;
 
     int totalWeightOff = 0;
     int totalBiasOff = 0;
@@ -69,11 +76,18 @@ __kernel void backward_kernel(
         totalBiasOff += g_layerDims[l + 1];
     }
 
+    int cumOffset = 0;
+    for (int l = 0; l < g_numLayers; l++) {
+        cumOffset += g_layerDims[l + 1];
+    }
+
     __global float* currGrad = (__global float*)(g_gradOutput + sampleId * outDim);
 
     for (int l = g_numLayers - 1; l >= 0; l--) {
         int inDim = g_layerDims[l];
         int outDimL = g_layerDims[l + 1];
+
+        cumOffset -= outDimL;
 
         int wOff = totalWeightOff - g_layerDims[l] * g_layerDims[l + 1];
         int bOff = totalBiasOff - g_layerDims[l + 1];
@@ -82,7 +96,7 @@ __kernel void backward_kernel(
         __global float* gw = g_gradWeights + wOff;
         __global float* gb = g_gradBiases + bOff;
 
-        __global const float* prevAct = (l == 0) ? (g_input + sampleId * inDim) : (g_hidden + sampleId * g_layerDims[l]);
+        __global const float* prevAct = (l == 0) ? (g_input + sampleId * inDim) : (g_hidden + sampleOffset + cumOffset);
 
         for (int i = 0; i < outDimL; i++) {
             float g = currGrad[i];
@@ -93,7 +107,7 @@ __kernel void backward_kernel(
         }
 
         if (l > 0) {
-            __global float* prevGrad = g_hidden + sampleId * g_layerDims[l];
+            __global float* prevGrad = g_hidden + sampleOffset + cumOffset;
             for (int j = 0; j < inDim; j++) {
                 float sum = 0.0f;
                 for (int i = 0; i < outDimL; i++) {

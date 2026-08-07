@@ -36,7 +36,7 @@ typedef struct {
     int feature_dim;
     int label_dim;
     int max_batch;
-    int max_neurons;
+    int max_mid_size;
 
     int initialized;
 } OCLBackend;

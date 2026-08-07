@@ -13,7 +13,6 @@
 
 #define MAX_SOURCE_SIZE 65536
 #define MAX_BATCH 65536
-#define MAX_NEURONS 1024
 
 static const char* read_kernel_source(const char* filename) {
     FILE* fp = fopen(filename, "r");
@@ -82,7 +81,6 @@ static int build_program(OCLBackend* backend) {
 static int allocate_buffers(OCLBackend* backend) {
     cl_int err;
     backend->max_batch = MAX_BATCH;
-    backend->max_neurons = MAX_NEURONS;
 
     backend->d_weights = clCreateBuffer(backend->context, CL_MEM_READ_WRITE,
                                         backend->total_weights * sizeof(float), NULL, &err);
@@ -108,8 +106,14 @@ static int allocate_buffers(OCLBackend* backend) {
     backend->d_layerDims = clCreateBuffer(backend->context, CL_MEM_READ_ONLY,
                                           (backend->num_layers + 1) * sizeof(int), NULL, &err);
     if (err != CL_SUCCESS) return 0;
+
+    backend->max_mid_size = 0;
+    for (int i = 1; i < backend->num_layers; i++) {
+        backend->max_mid_size += backend->layer_sizes[i];
+    }
+
     backend->d_hidden = clCreateBuffer(backend->context, CL_MEM_READ_WRITE,
-                                       MAX_BATCH * MAX_NEURONS * sizeof(float), NULL, &err);
+                                       MAX_BATCH * backend->max_mid_size * sizeof(float), NULL, &err);
     if (err != CL_SUCCESS) return 0;
 
     backend->host_weights = (float*)malloc(backend->total_weights * sizeof(float));
@@ -234,6 +238,7 @@ DLL_EXPORT void ocl_backend_forward(OCLBackend* backend, const float* input, flo
     clSetKernelArg(backend->kernel_forward, 5, sizeof(int), &backend->num_layers);
     clSetKernelArg(backend->kernel_forward, 6, sizeof(cl_mem), &backend->d_layerDims);
     clSetKernelArg(backend->kernel_forward, 7, sizeof(cl_mem), &backend->d_hidden);
+    clSetKernelArg(backend->kernel_forward, 8, sizeof(int), &backend->max_mid_size);
 
     size_t global_size = batch_size;
     err = clEnqueueNDRangeKernel(backend->queue, backend->kernel_forward, 1, NULL,
@@ -276,6 +281,7 @@ DLL_EXPORT void ocl_backend_backward(OCLBackend* backend, const float* input, co
     clSetKernelArg(backend->kernel_backward, 7, sizeof(int), &backend->num_layers);
     clSetKernelArg(backend->kernel_backward, 8, sizeof(cl_mem), &backend->d_layerDims);
     clSetKernelArg(backend->kernel_backward, 9, sizeof(cl_mem), &backend->d_hidden);
+    clSetKernelArg(backend->kernel_backward, 10, sizeof(int), &backend->max_mid_size);
 
     size_t global_size = batch_size;
     err = clEnqueueNDRangeKernel(backend->queue, backend->kernel_backward, 1, NULL,
