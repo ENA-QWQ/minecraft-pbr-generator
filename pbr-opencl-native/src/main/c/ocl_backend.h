@@ -24,10 +24,13 @@ typedef struct {
     cl_mem d_layerDims;
     cl_mem d_hidden;
 
+    cl_mem d_vWeights;
+    cl_mem d_vBiases;
+
     float* host_weights;
     float* host_biases;
-    float* host_gradWeights;
-    float* host_gradBiases;
+    float* host_vWeights;
+    float* host_vBiases;
 
     int* layer_sizes;
     int num_layers;

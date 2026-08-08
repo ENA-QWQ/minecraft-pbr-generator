@@ -137,8 +137,6 @@ public class Trainer {
         float[] batchLabel = new float[batchSize * labelDim];
         float[] batchOutput = new float[batchSize * labelDim];
         float[] gradOutput = new float[batchSize * labelDim];
-        float[] flatGradWeights = new float[calcTotalWeights()];
-        float[] flatGradBiases = new float[calcTotalBiases()];
 
         long totalStart = System.currentTimeMillis();
         int totalBatches = (int) Math.ceil((double) trainSize / batchSize);
@@ -252,36 +250,52 @@ public class Trainer {
                               float[] data, float[] labels, int[] indices,
                               int labelOffset, int labelDim,
                               String colorCode, String prefix) {
-        float sumSq = 0.0f;
         int n = indices.length;
-        float[] input = new float[FEATURE_DIM];
-        float[] output = new float[labelDim];
+        int valBatchSize = Math.min(1024, n);
+        float[] batchInput = new float[valBatchSize * FEATURE_DIM];
+        float[] batchOutput = new float[valBatchSize * labelDim];
+        float sumSq = 0.0f;
+        int processed = 0;
 
         int barLength = 50;
         int updateInterval = Math.max(1, n / 100);
-        int processed = 0;
+        int nextUpdate = updateInterval;
 
-        for (int i = 0; i < n; i++) {
-            int idx = indices[i];
-            System.arraycopy(data, idx * FEATURE_DIM, input, 0, FEATURE_DIM);
-            int labelBase = idx * LABEL_DIM + labelOffset;
-            float target = labels[labelBase];
-            backend.forward(input, output);
-            float diff = output[0] - target;
-            sumSq += diff * diff;
-
-            processed++;
-            if (processed % updateInterval == 0 || processed == n) {
+        for (int start = 0; start < n; start += valBatchSize) {
+            int end = Math.min(start + valBatchSize, n);
+            int actualBatch = end - start;
+            for (int i = start; i < end; i++) {
+                int idx = indices[i];
+                System.arraycopy(data, idx * FEATURE_DIM,
+                        batchInput, (i - start) * FEATURE_DIM, FEATURE_DIM);
+            }
+            backend.forwardBatch(batchInput, batchOutput, actualBatch);
+            for (int i = 0; i < actualBatch; i++) {
+                int idx = indices[start + i];
+                int labelBase = idx * LABEL_DIM + labelOffset;
+                float target = labels[labelBase];
+                float diff = batchOutput[i * labelDim] - target;
+                sumSq += diff * diff;
+            }
+            processed += actualBatch;
+            while (processed >= nextUpdate && nextUpdate <= n) {
                 int progress = (int) (((double) processed / n) * 100);
                 int filled = (int) ((progress / 100.0) * barLength);
                 StringBuilder bar = new StringBuilder();
-                for (int k = 0; k < barLength; k++) {
-                    bar.append(k < filled ? "█" : "_");
+                for (int i = 0; i < barLength; i++) {
+                    bar.append(i < filled ? "█" : "_");
                 }
                 System.out.print("\r" + colorCode + prefix + " " + ANSI_RESET +
                         "[" + colorCode + bar.toString() + ANSI_RESET + "] " +
                         progress + "% | Samples: " + processed + "/" + n);
-                if (processed == n) System.out.println();
+                nextUpdate += updateInterval;
+                if (processed == n) {
+                    System.out.println();
+                    break;
+                }
+            }
+            if (processed == n) {
+                break;
             }
         }
         return sumSq / n;

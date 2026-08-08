@@ -94,6 +94,12 @@ static int allocate_buffers(OCLBackend* backend) {
     backend->d_gradBiases = clCreateBuffer(backend->context, CL_MEM_READ_WRITE,
                                            backend->total_biases * sizeof(float), NULL, &err);
     if (err != CL_SUCCESS) return 0;
+    backend->d_vWeights = clCreateBuffer(backend->context, CL_MEM_READ_WRITE,
+                                         backend->total_weights * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) return 0;
+    backend->d_vBiases = clCreateBuffer(backend->context, CL_MEM_READ_WRITE,
+                                        backend->total_biases * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) return 0;
     backend->d_input = clCreateBuffer(backend->context, CL_MEM_READ_ONLY,
                                       MAX_BATCH * backend->feature_dim * sizeof(float), NULL, &err);
     if (err != CL_SUCCESS) return 0;
@@ -120,12 +126,18 @@ static int allocate_buffers(OCLBackend* backend) {
     if (!backend->host_weights) return 0;
     backend->host_biases = (float*)malloc(backend->total_biases * sizeof(float));
     if (!backend->host_biases) return 0;
-    backend->host_gradWeights = (float*)malloc(backend->total_weights * sizeof(float));
-    if (!backend->host_gradWeights) return 0;
-    backend->host_gradBiases = (float*)malloc(backend->total_biases * sizeof(float));
-    if (!backend->host_gradBiases) return 0;
-    memset(backend->host_gradWeights, 0, backend->total_weights * sizeof(float));
-    memset(backend->host_gradBiases, 0, backend->total_biases * sizeof(float));
+    backend->host_vWeights = (float*)calloc(backend->total_weights, sizeof(float));
+    if (!backend->host_vWeights) return 0;
+    backend->host_vBiases = (float*)calloc(backend->total_biases, sizeof(float));
+    if (!backend->host_vBiases) return 0;
+
+    err = clEnqueueWriteBuffer(backend->queue, backend->d_vWeights, CL_TRUE, 0,
+                               backend->total_weights * sizeof(float), backend->host_vWeights, 0, NULL, NULL);
+    if (err != CL_SUCCESS) return 0;
+    err = clEnqueueWriteBuffer(backend->queue, backend->d_vBiases, CL_TRUE, 0,
+                               backend->total_biases * sizeof(float), backend->host_vBiases, 0, NULL, NULL);
+    if (err != CL_SUCCESS) return 0;
+
     return 1;
 }
 
@@ -208,12 +220,14 @@ DLL_EXPORT void ocl_backend_destroy(OCLBackend* backend) {
     if (backend->d_output) clReleaseMemObject(backend->d_output);
     if (backend->d_gradWeights) clReleaseMemObject(backend->d_gradWeights);
     if (backend->d_gradBiases) clReleaseMemObject(backend->d_gradBiases);
+    if (backend->d_vWeights) clReleaseMemObject(backend->d_vWeights);
+    if (backend->d_vBiases) clReleaseMemObject(backend->d_vBiases);
     if (backend->d_layerDims) clReleaseMemObject(backend->d_layerDims);
     if (backend->d_hidden) clReleaseMemObject(backend->d_hidden);
     free(backend->host_weights);
     free(backend->host_biases);
-    free(backend->host_gradWeights);
-    free(backend->host_gradBiases);
+    free(backend->host_vWeights);
+    free(backend->host_vBiases);
     free(backend->layer_sizes);
     free(backend);
 }
@@ -288,90 +302,77 @@ DLL_EXPORT void ocl_backend_backward(OCLBackend* backend, const float* input, co
                                  &global_size, NULL, 0, NULL, NULL);
     if (err != CL_SUCCESS) { fprintf(stderr, "backward: execute kernel failed %d\n", err); return; }
 
-    err = clEnqueueReadBuffer(backend->queue, backend->d_gradWeights, CL_TRUE, 0,
-                              backend->total_weights * sizeof(float), backend->host_gradWeights, 0, NULL, NULL);
-    if (err != CL_SUCCESS) { fprintf(stderr, "backward: read gradWeights failed %d\n", err); return; }
-
-    err = clEnqueueReadBuffer(backend->queue, backend->d_gradBiases, CL_TRUE, 0,
-                              backend->total_biases * sizeof(float), backend->host_gradBiases, 0, NULL, NULL);
-    if (err != CL_SUCCESS) { fprintf(stderr, "backward: read gradBiases failed %d\n", err); return; }
+    clFinish(backend->queue);
 }
 
 DLL_EXPORT void ocl_backend_update(OCLBackend* backend, const float* grad_weights, const float* grad_biases,
                         int batch_size, float lr, float momentum) {
     if (!backend || !backend->initialized) return;
     cl_int err;
-    if (grad_weights) {
-        err = clEnqueueWriteBuffer(backend->queue, backend->d_gradWeights, CL_FALSE, 0,
-                                   backend->total_weights * sizeof(float), grad_weights, 0, NULL, NULL);
-    } else {
-        err = clEnqueueWriteBuffer(backend->queue, backend->d_gradWeights, CL_FALSE, 0,
-                                   backend->total_weights * sizeof(float), backend->host_gradWeights, 0, NULL, NULL);
-    }
-    if (err != CL_SUCCESS) return;
-    if (grad_biases) {
-        err = clEnqueueWriteBuffer(backend->queue, backend->d_gradBiases, CL_FALSE, 0,
-                                   backend->total_biases * sizeof(float), grad_biases, 0, NULL, NULL);
-    } else {
-        err = clEnqueueWriteBuffer(backend->queue, backend->d_gradBiases, CL_FALSE, 0,
-                                   backend->total_biases * sizeof(float), backend->host_gradBiases, 0, NULL, NULL);
-    }
-    if (err != CL_SUCCESS) return;
+
     int total = backend->total_weights + backend->total_biases;
     clSetKernelArg(backend->kernel_update, 0, sizeof(cl_mem), &backend->d_weights);
     clSetKernelArg(backend->kernel_update, 1, sizeof(cl_mem), &backend->d_biases);
     clSetKernelArg(backend->kernel_update, 2, sizeof(cl_mem), &backend->d_gradWeights);
     clSetKernelArg(backend->kernel_update, 3, sizeof(cl_mem), &backend->d_gradBiases);
-    clSetKernelArg(backend->kernel_update, 4, sizeof(int), &batch_size);
-    clSetKernelArg(backend->kernel_update, 5, sizeof(float), &lr);
-    clSetKernelArg(backend->kernel_update, 6, sizeof(float), &momentum);
-    clSetKernelArg(backend->kernel_update, 7, sizeof(int), &backend->total_weights);
-    clSetKernelArg(backend->kernel_update, 8, sizeof(int), &backend->total_biases);
+    clSetKernelArg(backend->kernel_update, 4, sizeof(cl_mem), &backend->d_vWeights);
+    clSetKernelArg(backend->kernel_update, 5, sizeof(cl_mem), &backend->d_vBiases);
+    clSetKernelArg(backend->kernel_update, 6, sizeof(int), &batch_size);
+    clSetKernelArg(backend->kernel_update, 7, sizeof(float), &lr);
+    clSetKernelArg(backend->kernel_update, 8, sizeof(float), &momentum);
+    clSetKernelArg(backend->kernel_update, 9, sizeof(int), &backend->total_weights);
+    clSetKernelArg(backend->kernel_update, 10, sizeof(int), &backend->total_biases);
+
     size_t global_size = total;
     err = clEnqueueNDRangeKernel(backend->queue, backend->kernel_update, 1, NULL,
                                  &global_size, NULL, 0, NULL, NULL);
-    if (err != CL_SUCCESS) return;
-    err = clEnqueueReadBuffer(backend->queue, backend->d_weights, CL_TRUE, 0,
-                              backend->total_weights * sizeof(float), backend->host_weights, 0, NULL, NULL);
-    if (err != CL_SUCCESS) return;
-    err = clEnqueueReadBuffer(backend->queue, backend->d_biases, CL_TRUE, 0,
-                              backend->total_biases * sizeof(float), backend->host_biases, 0, NULL, NULL);
+    if (err != CL_SUCCESS) { fprintf(stderr, "update: execute kernel failed %d\n", err); return; }
+    clFinish(backend->queue);
+    
 }
 
 DLL_EXPORT void ocl_backend_zero_gradients(OCLBackend* backend) {
     if (!backend || !backend->initialized) return;
-    memset(backend->host_gradWeights, 0, backend->total_weights * sizeof(float));
-    memset(backend->host_gradBiases, 0, backend->total_biases * sizeof(float));
     cl_int err;
-    err = clEnqueueWriteBuffer(backend->queue, backend->d_gradWeights, CL_TRUE, 0,
-                               backend->total_weights * sizeof(float), backend->host_gradWeights, 0, NULL, NULL);
-    if (err != CL_SUCCESS) return;
-    err = clEnqueueWriteBuffer(backend->queue, backend->d_gradBiases, CL_TRUE, 0,
-                               backend->total_biases * sizeof(float), backend->host_gradBiases, 0, NULL, NULL);
+    float zero = 0.0f;
+    err = clEnqueueFillBuffer(backend->queue, backend->d_gradWeights, &zero, sizeof(float),
+                              0, backend->total_weights * sizeof(float), 0, NULL, NULL);
+    if (err != CL_SUCCESS) {
+        err = clEnqueueWriteBuffer(backend->queue, backend->d_gradWeights, CL_TRUE, 0,
+                                   backend->total_weights * sizeof(float), &zero, 0, NULL, NULL);
+    }
+    err = clEnqueueFillBuffer(backend->queue, backend->d_gradBiases, &zero, sizeof(float),
+                              0, backend->total_biases * sizeof(float), 0, NULL, NULL);
+    if (err != CL_SUCCESS) {
+        err = clEnqueueWriteBuffer(backend->queue, backend->d_gradBiases, CL_TRUE, 0,
+                                   backend->total_biases * sizeof(float), &zero, 0, NULL, NULL);
+    }
+    clFinish(backend->queue);
+    
 }
 
 DLL_EXPORT void ocl_backend_get_weights(OCLBackend* backend, float* out) {
     if (!backend || !backend->initialized || !out) return;
-    memcpy(out, backend->host_weights, backend->total_weights * sizeof(float));
+    clEnqueueReadBuffer(backend->queue, backend->d_weights, CL_TRUE, 0,
+                        backend->total_weights * sizeof(float), out, 0, NULL, NULL);
 }
 
 DLL_EXPORT void ocl_backend_get_biases(OCLBackend* backend, float* out) {
     if (!backend || !backend->initialized || !out) return;
-    memcpy(out, backend->host_biases, backend->total_biases * sizeof(float));
+    clEnqueueReadBuffer(backend->queue, backend->d_biases, CL_TRUE, 0,
+                        backend->total_biases * sizeof(float), out, 0, NULL, NULL);
 }
 
 DLL_EXPORT void ocl_backend_set_weights(OCLBackend* backend, const float* weights) {
     if (!backend || !backend->initialized || !weights) return;
-    memcpy(backend->host_weights, weights, backend->total_weights * sizeof(float));
     clEnqueueWriteBuffer(backend->queue, backend->d_weights, CL_TRUE, 0,
-                         backend->total_weights * sizeof(float), backend->host_weights, 0, NULL, NULL);
+                         backend->total_weights * sizeof(float), weights, 0, NULL, NULL);
 }
 
 DLL_EXPORT void ocl_backend_set_biases(OCLBackend* backend, const float* biases) {
     if (!backend || !backend->initialized || !biases) return;
-    memcpy(backend->host_biases, biases, backend->total_biases * sizeof(float));
     clEnqueueWriteBuffer(backend->queue, backend->d_biases, CL_TRUE, 0,
-                         backend->total_biases * sizeof(float), backend->host_biases, 0, NULL, NULL);
+                         backend->total_biases * sizeof(float), biases, 0, NULL, NULL);
 }
 
 DLL_EXPORT int ocl_backend_get_total_weights(OCLBackend* backend) {

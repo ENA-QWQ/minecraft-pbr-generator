@@ -18,7 +18,7 @@ public class InferenceMain {
         String backendType = extractBackend(args);
 
         System.out.println(ANSI_GREEN + ANSI_BOLD);
-        System.out.println("██╗   ██╗ ██████╗████╗  ██████╗ ");
+        System.out.println("███╗   ███╗ ██████╗██████╗  ██████╗ ");
         System.out.println("████╗ ████║██╔════╝██╔══██╗██╔════╝ ");
         System.out.println("██╔████╔██║██║     ██████╔╝██║  ███╗");
         System.out.println("██║╚██╔╝██║██║     ██╔═══╝ ██║   ██║");

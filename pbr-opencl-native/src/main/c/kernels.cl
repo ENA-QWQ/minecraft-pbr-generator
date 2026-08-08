@@ -128,6 +128,8 @@ __kernel void update_kernel(
     __global float* g_biases,
     __global const float* g_gradWeights,
     __global const float* g_gradBiases,
+    __global float* g_vWeights,
+    __global float* g_vBiases,
     int g_batchSize,
     float g_lr,
     float g_momentum,
@@ -137,10 +139,14 @@ __kernel void update_kernel(
     int idx = get_global_id(0);
     if (idx < g_totalWeights) {
         float avg = g_gradWeights[idx] / (float)g_batchSize;
-        g_weights[idx] -= g_lr * avg;
+        float v = g_momentum * g_vWeights[idx] - g_lr * avg;
+        g_vWeights[idx] = v;
+        g_weights[idx] += v;
     } else if (idx < g_totalWeights + g_totalBiases) {
         int bIdx = idx - g_totalWeights;
         float avg = g_gradBiases[bIdx] / (float)g_batchSize;
-        g_biases[bIdx] -= g_lr * avg;
+        float v = g_momentum * g_vBiases[bIdx] - g_lr * avg;
+        g_vBiases[bIdx] = v;
+        g_biases[bIdx] += v;
     }
 }

@@ -26,7 +26,7 @@ public class TrainMain {
         }
 
         System.out.println(ANSI_CYAN + ANSI_BOLD);
-        System.out.println("████╗   ███╗ ██████╗████╗  ██████╗ ");
+        System.out.println("███╗   ███╗ ██████╗██████╗  ██████╗ ");
         System.out.println("████╗ ████║██╔════╝██╔══██╗██╔════╝ ");
         System.out.println("██╔████╔██║██║     ██████╔╝██║  ███╗");
         System.out.println("██║╚██╔╝██║██║     ██╔═══╝ ██║   ██║");
