@@ -30,6 +30,7 @@ public class PBRInferenceEngine {
     private final float normPercentile;
     private final int featureDim;
     private final int labelDim;
+    private final int patchRadius;
     private final HeightToNormalConverter normalConverter = new HeightToNormalConverter();
     private final NearestNeighborScaler scaler = new NearestNeighborScaler();
 
@@ -38,7 +39,7 @@ public class PBRInferenceEngine {
                               boolean invertHeight, boolean invertNormalY,
                               float heightStrength, float heightMin, float heightMax,
                               int heightSmoothRadius, float normPercentile,
-                              String backendType) {
+                              String backendType, int patchRadius) {
         this.backend = BackendFactory.createFromWeights(
                 backendType,
                 modelLoader.getLayerSizes(),
@@ -58,6 +59,7 @@ public class PBRInferenceEngine {
         this.heightMax = heightMax;
         this.heightSmoothRadius = heightSmoothRadius;
         this.normPercentile = normPercentile;
+        this.patchRadius = patchRadius;
     }
 
     public void process(String inputPath, String outputDir) throws Exception {
@@ -113,11 +115,12 @@ public class PBRInferenceEngine {
         int idx = 0;
         int updateInterval = Math.max(1, totalPixels / 50);
         int processed = 0;
+        int patchSize = 2 * patchRadius + 1;
 
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                for (int dy = -2; dy <= 2; dy++) {
-                    for (int dx = -2; dx <= 2; dx++) {
+                for (int dy = -patchRadius; dy <= patchRadius; dy++) {
+                    for (int dx = -patchRadius; dx <= patchRadius; dx++) {
                         int sx = (x + dx + w) % w;
                         int sy = (y + dy + h) % h;
                         int pixel = pixels[sy * w + sx];
