@@ -18,6 +18,7 @@ public class TrainMain {
 
         PBRConfig.TrainingConfig train = config.getTraining();
         PBRConfig.HyperparamsConfig hp = train.getHyperparams();
+        PBRConfig.GlobalConfig global = config.getGlobal();
 
         if (train.getTrainSplit() + train.getValSplit() > train.getTotalSamples()) {
             System.err.println(ANSI_RED + ANSI_BOLD + "[ERROR] " + ANSI_RESET +
@@ -37,6 +38,8 @@ public class TrainMain {
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Backend: " + backendType.toUpperCase());
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Data: " + train.getDataPath());
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Output: " + train.getModelOutput());
+        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "FeatureDim: " + global.getFeatureDim());
+        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "LabelDim: " + global.getLabelDim());
 
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + ANSI_BOLD + "Hyperparameters:" + ANSI_RESET);
         System.out.printf("  %-12s: %d\n", "BatchSize", hp.getBatchSize());
@@ -45,7 +48,7 @@ public class TrainMain {
         System.out.printf("  %-12s: %.4f\n", "LR", hp.getLearningRate());
         System.out.printf("  %-12s: %.4f\n", "LR_Decay", hp.getLrDecay());
         System.out.printf("  %-12s: %d\n", "LR_Step", hp.getLrStep());
-        System.out.printf("  %-12s: %d\n", "Seed", config.getGlobal().getSeed());
+        System.out.printf("  %-12s: %d\n", "Seed", global.getSeed());
         System.out.printf("  %-12s: ", "Layers");
         for (int i = 0; i < hp.getLayers().length; i++) {
             System.out.print(hp.getLayers()[i] + (i < hp.getLayers().length - 1 ? "," : ""));
@@ -67,12 +70,14 @@ public class TrainMain {
                     hp.getLearningRate(),
                     hp.getLrDecay(),
                     hp.getLrStep(),
-                    config.getGlobal().getSeed(),
+                    global.getSeed(),
                     train.getTotalSamples(),
                     train.getTrainSplit(),
                     train.getValSplit(),
                     hp.getLayers(),
-                    backendType
+                    backendType,
+                    global.getFeatureDim(),
+                    global.getLabelDim()
             );
             trainer.prepareData();
             trainer.train(train.getModelOutput());

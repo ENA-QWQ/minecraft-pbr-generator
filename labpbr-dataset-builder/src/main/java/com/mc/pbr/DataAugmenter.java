@@ -3,7 +3,13 @@ package com.mc.pbr;
 import java.util.*;
 
 public class DataAugmenter {
-    private static final int PATCH_SIZE = 5;
+    private final int patchRadius;
+    private final int patchSize;
+
+    public DataAugmenter(int patchRadius) {
+        this.patchRadius = patchRadius;
+        this.patchSize = 2 * patchRadius + 1;
+    }
 
     public float[] applyAugmentation(float[] flatFeature, int type) {
         if (type == 0 || type == 7) {
@@ -68,30 +74,30 @@ public class DataAugmenter {
     }
 
     private float[][][] reshapeFeature(float[] flat) {
-        float[][][] patch = new float[PATCH_SIZE][PATCH_SIZE][4];
+        float[][][] patch = new float[patchSize][patchSize][4];
         int idx = 0;
-        for (int y = 0; y < PATCH_SIZE; y++)
-            for (int x = 0; x < PATCH_SIZE; x++)
+        for (int y = 0; y < patchSize; y++)
+            for (int x = 0; x < patchSize; x++)
                 for (int c = 0; c < 4; c++)
                     patch[y][x][c] = flat[idx++];
         return patch;
     }
 
     private float[] flattenFeature(float[][][] patch) {
-        float[] flat = new float[PATCH_SIZE * PATCH_SIZE * 4];
+        float[] flat = new float[patchSize * patchSize * 4];
         int idx = 0;
-        for (int y = 0; y < PATCH_SIZE; y++)
-            for (int x = 0; x < PATCH_SIZE; x++)
+        for (int y = 0; y < patchSize; y++)
+            for (int x = 0; x < patchSize; x++)
                 for (int c = 0; c < 4; c++)
                     flat[idx++] = patch[y][x][c];
         return flat;
     }
 
     private float[][][] rotate90Clockwise(float[][][] patch) {
-        float[][][] res = new float[PATCH_SIZE][PATCH_SIZE][4];
-        for (int y = 0; y < PATCH_SIZE; y++)
-            for (int x = 0; x < PATCH_SIZE; x++)
-                res[x][PATCH_SIZE - 1 - y] = patch[y][x];
+        float[][][] res = new float[patchSize][patchSize][4];
+        for (int y = 0; y < patchSize; y++)
+            for (int x = 0; x < patchSize; x++)
+                res[x][patchSize - 1 - y] = patch[y][x];
         return res;
     }
 
@@ -104,17 +110,17 @@ public class DataAugmenter {
     }
 
     private float[][][] flipHorizontal(float[][][] patch) {
-        float[][][] res = new float[PATCH_SIZE][PATCH_SIZE][4];
-        for (int y = 0; y < PATCH_SIZE; y++)
-            for (int x = 0; x < PATCH_SIZE; x++)
-                res[y][PATCH_SIZE - 1 - x] = patch[y][x];
+        float[][][] res = new float[patchSize][patchSize][4];
+        for (int y = 0; y < patchSize; y++)
+            for (int x = 0; x < patchSize; x++)
+                res[y][patchSize - 1 - x] = patch[y][x];
         return res;
     }
 
     private float[][][] flipVertical(float[][][] patch) {
-        float[][][] res = new float[PATCH_SIZE][PATCH_SIZE][4];
-        for (int y = 0; y < PATCH_SIZE; y++)
-            res[PATCH_SIZE - 1 - y] = patch[y];
+        float[][][] res = new float[patchSize][patchSize][4];
+        for (int y = 0; y < patchSize; y++)
+            res[patchSize - 1 - y] = patch[y];
         return res;
     }
 }

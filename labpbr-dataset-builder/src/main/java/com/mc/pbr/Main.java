@@ -43,6 +43,7 @@ public class Main {
         System.out.printf("  %-12s: %s\n", "Output", new File(db.getOutputDir()).getAbsolutePath());
         System.out.printf("  %-12s: %d\n", "MaxSamples", db.getMaxSamples());
         System.out.printf("  %-12s: %d\n", "Seed", gb.getSeed());
+        System.out.printf("  %-12s: %d\n", "PatchRadius", gb.getPatchSize());
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Strategy: All texture groups contribute evenly, stream-write as we go");
 
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Step 1/4: Validating and cleaning data...");
@@ -64,6 +65,9 @@ public class Main {
             return;
         }
 
+        int patchRadius = gb.getPatchSize();
+        int featureDim = (2 * patchRadius + 1) * (2 * patchRadius + 1) * 4;
+        gb.setFeatureDim(featureDim);
         final int FEATURE_DIM = gb.getFeatureDim();
         final int LABEL_DIM = gb.getLabelDim();
 
@@ -93,8 +97,8 @@ public class Main {
         }
 
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Step 2+3/4: Extracting per texture, random sampling and writing to disk...");
-        LabPBRDataExtractor extractor = new LabPBRDataExtractor();
-        DataAugmenter augmenter = new DataAugmenter();
+        LabPBRDataExtractor extractor = new LabPBRDataExtractor(patchRadius);
+        DataAugmenter augmenter = new DataAugmenter(patchRadius);
         Random rng = new Random(gb.getSeed());
         int totalWritten = 0;
         int processedTextures = 0;

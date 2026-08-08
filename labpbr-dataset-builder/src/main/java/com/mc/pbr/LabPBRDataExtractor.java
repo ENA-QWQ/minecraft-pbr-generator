@@ -15,7 +15,11 @@ public class LabPBRDataExtractor {
     private static final String ANSI_BOLD = "\u001B[1m";
 
     private static final int TARGET_SIZE = 128;
-    private static final int PATCH_RADIUS = 2;
+    private final int patchRadius;
+
+    public LabPBRDataExtractor(int patchRadius) {
+        this.patchRadius = patchRadius;
+    }
 
     public ExtractionResult extract(LabPBRValidator.TextureTriple triple) {
         try {
@@ -89,13 +93,14 @@ public class LabPBRDataExtractor {
     }
 
     private float[] extractPatch(float[][] baseNorm, int cx, int cy, int w, int h) {
-        float[] feat = new float[25 * 4];
+        int patchSize = 2 * patchRadius + 1;
+        float[] feat = new float[patchSize * patchSize * 4];
         int idx = 0;
         float[] r = baseNorm[0];
         float[] g = baseNorm[1];
         float[] b = baseNorm[2];
-        for (int dy = -PATCH_RADIUS; dy <= PATCH_RADIUS; dy++) {
-            for (int dx = -PATCH_RADIUS; dx <= PATCH_RADIUS; dx++) {
+        for (int dy = -patchRadius; dy <= patchRadius; dy++) {
+            for (int dx = -patchRadius; dx <= patchRadius; dx++) {
                 int nx = (cx + dx + w) % w;
                 int ny = (cy + dy + h) % h;
                 int pi = ny * w + nx;

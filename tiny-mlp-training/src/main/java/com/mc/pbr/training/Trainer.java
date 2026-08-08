@@ -15,8 +15,6 @@ public class Trainer {
     private static final String ANSI_MAGENTA = "\u001B[35m";
     private static final String ANSI_CYAN = "\u001B[36m";
     private static final String ANSI_BOLD = "\u001B[1m";
-    private static final int FEATURE_DIM = 100;
-    private static final int LABEL_DIM = 5;
     private static final float MOMENTUM = 0.9f;
 
     private final String dataPath;
@@ -33,6 +31,8 @@ public class Trainer {
     private final int valSize;
     private final int[] layerSizes;
     private final String backendType;
+    private final int featureDim;
+    private final int labelDim;
 
     private float[] trainData;
     private float[] trainLabels;
@@ -44,7 +44,7 @@ public class Trainer {
     public Trainer(String dataPath, String labelPath, int batchSize, int maxEpochs,
                    int earlyStopPatience, float initLr, float lrDecay, int lrStepEpochs,
                    long seed, int totalSamples, int trainSize, int valSize, int[] layerSizes,
-                   String backendType) {
+                   String backendType, int featureDim, int labelDim) {
         this.dataPath = dataPath;
         this.labelPath = labelPath;
         this.batchSize = batchSize;
@@ -59,6 +59,8 @@ public class Trainer {
         this.valSize = valSize;
         this.layerSizes = layerSizes;
         this.backendType = backendType;
+        this.featureDim = featureDim;
+        this.labelDim = labelDim;
     }
 
     public void prepareData() throws IOException {
@@ -76,16 +78,16 @@ public class Trainer {
         int[] sortedValIdx = valIndices.clone();
         Arrays.sort(sortedValIdx);
 
-        trainData = new float[trainSize * FEATURE_DIM];
-        trainLabels = new float[trainSize * LABEL_DIM];
-        valData = new float[valSize * FEATURE_DIM];
-        valLabels = new float[valSize * LABEL_DIM];
+        trainData = new float[trainSize * featureDim];
+        trainLabels = new float[trainSize * labelDim];
+        valData = new float[valSize * featureDim];
+        valLabels = new float[valSize * labelDim];
 
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Extracting training and validation subsets...");
         BinaryChunkReader.extractSamples(dataPath, labelPath, sortedTrainIdx,
-                trainData, trainLabels, FEATURE_DIM, LABEL_DIM);
+                trainData, trainLabels, featureDim, labelDim);
         BinaryChunkReader.extractSamples(dataPath, labelPath, sortedValIdx,
-                valData, valLabels, FEATURE_DIM, LABEL_DIM);
+                valData, valLabels, featureDim, labelDim);
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Data extraction completed.");
     }
 
@@ -119,7 +121,7 @@ public class Trainer {
     }
 
     private void trainModel(ComputingBackend backend, String savePath) throws IOException {
-        int labelDim = 1;
+        int heightLabelDim = 1;
         int labelOffset = 2;
 
         int[] localTrainIdx = new int[trainSize];
@@ -133,10 +135,10 @@ public class Trainer {
         int patienceCounter = 0;
         float lr = initLr;
 
-        float[] batchInput = new float[batchSize * FEATURE_DIM];
-        float[] batchLabel = new float[batchSize * labelDim];
-        float[] batchOutput = new float[batchSize * labelDim];
-        float[] gradOutput = new float[batchSize * labelDim];
+        float[] batchInput = new float[batchSize * featureDim];
+        float[] batchLabel = new float[batchSize * heightLabelDim];
+        float[] batchOutput = new float[batchSize * heightLabelDim];
+        float[] gradOutput = new float[batchSize * heightLabelDim];
 
         long totalStart = System.currentTimeMillis();
         int totalBatches = (int) Math.ceil((double) trainSize / batchSize);
@@ -153,15 +155,15 @@ public class Trainer {
                 for (int i = batchStart; i < batchEnd; i++) {
                     int idx = localTrainIdx[i];
                     int localIdx = i - batchStart;
-                    System.arraycopy(trainData, idx * FEATURE_DIM,
-                            batchInput, localIdx * FEATURE_DIM, FEATURE_DIM);
-                    int labelBase = idx * LABEL_DIM + labelOffset;
-                    batchLabel[localIdx * labelDim] = trainLabels[labelBase];
+                    System.arraycopy(trainData, idx * featureDim,
+                            batchInput, localIdx * featureDim, featureDim);
+                    int labelBase = idx * labelDim + labelOffset;
+                    batchLabel[localIdx * heightLabelDim] = trainLabels[labelBase];
                 }
 
                 backend.zeroGradients();
                 backend.forwardBatch(batchInput, batchOutput, actualBatchSize);
-                for (int i = 0; i < actualBatchSize * labelDim; i++) {
+                for (int i = 0; i < actualBatchSize * heightLabelDim; i++) {
                     gradOutput[i] = batchOutput[i] - batchLabel[i];
                 }
                 backend.backwardBatch(batchInput, batchLabel, gradOutput, actualBatchSize);
@@ -183,9 +185,9 @@ public class Trainer {
             System.out.println();
 
             float trainLoss = computeLoss(backend, trainData, trainLabels, localTrainIdx,
-                    labelOffset, labelDim, ANSI_YELLOW, "[TRAIN LOSS]");
+                    labelOffset, heightLabelDim, ANSI_YELLOW, "[TRAIN LOSS]");
             float valLoss = computeLoss(backend, valData, valLabels, localValIdx,
-                    labelOffset, labelDim, ANSI_MAGENTA, "[VALIDATE]");
+                    labelOffset, heightLabelDim, ANSI_MAGENTA, "[VALIDATE]");
 
             long epochTime = System.currentTimeMillis() - epochStart;
 
@@ -248,12 +250,12 @@ public class Trainer {
 
     private float computeLoss(ComputingBackend backend,
                               float[] data, float[] labels, int[] indices,
-                              int labelOffset, int labelDim,
+                              int labelOffset, int heightLabelDim,
                               String colorCode, String prefix) {
         int n = indices.length;
         int valBatchSize = Math.min(1024, n);
-        float[] batchInput = new float[valBatchSize * FEATURE_DIM];
-        float[] batchOutput = new float[valBatchSize * labelDim];
+        float[] batchInput = new float[valBatchSize * featureDim];
+        float[] batchOutput = new float[valBatchSize * heightLabelDim];
         float sumSq = 0.0f;
         int processed = 0;
 
@@ -266,15 +268,15 @@ public class Trainer {
             int actualBatch = end - start;
             for (int i = start; i < end; i++) {
                 int idx = indices[i];
-                System.arraycopy(data, idx * FEATURE_DIM,
-                        batchInput, (i - start) * FEATURE_DIM, FEATURE_DIM);
+                System.arraycopy(data, idx * featureDim,
+                        batchInput, (i - start) * featureDim, featureDim);
             }
             backend.forwardBatch(batchInput, batchOutput, actualBatch);
             for (int i = 0; i < actualBatch; i++) {
                 int idx = indices[start + i];
-                int labelBase = idx * LABEL_DIM + labelOffset;
+                int labelBase = idx * labelDim + labelOffset;
                 float target = labels[labelBase];
-                float diff = batchOutput[i * labelDim] - target;
+                float diff = batchOutput[i * heightLabelDim] - target;
                 sumSq += diff * diff;
             }
             processed += actualBatch;
@@ -310,5 +312,4 @@ public class Trainer {
         }
         System.out.println(ANSI_GREEN + "[SAVE] " + ANSI_RESET + "Model saved to " + path);
     }
-
 }

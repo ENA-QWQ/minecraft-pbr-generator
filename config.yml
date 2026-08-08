@@ -1,8 +1,9 @@
 global:
-  seed: 11451
-  featureDim: 100
+  seed: 42
+  featureDim: 196   # (2*3+1)^2 * 4 = 49*4 = 196
   labelDim: 5
-  patchSize: 5
+  patchSize: 4
+  backend: "gpu"
 
 datasetBuilder:
   inputDir: "./resourcepacks"
@@ -19,13 +20,13 @@ training:
   trainSplit: 100000
   valSplit: 20000
   hyperparams:
-    batchSize: 128
+    batchSize: 2048
     epochs: 100
     patience: 8
     learningRate: 0.005
     lrDecay: 0.95
     lrStep: 10
-    layers: [100, 32, 16, 1]
+    layers: [196, 64, 32, 1]
 
 inference:
   modelPath: "./height_model.ser"
