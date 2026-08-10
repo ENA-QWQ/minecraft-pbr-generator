@@ -1,11 +1,44 @@
 package com.mc.pbr.opencl;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+
 public class CLNative {
+    private static boolean loaded = false;
+
     static {
-        try {
-            System.loadLibrary("pbr_ocl");
-        } catch (UnsatisfiedLinkError e) {
-            System.err.println("[WARN] Failed to load pbr_ocl native library: " + e.getMessage());
+        if (!loaded) {
+            String libName = "pbr_ocl.dll";
+            InputStream in = CLNative.class.getResourceAsStream("/" + libName);
+            boolean success = false;
+            if (in != null) {
+                try {
+                    File tempFile = File.createTempFile("pbr_ocl", ".dll");
+                    tempFile.deleteOnExit();
+                    try (OutputStream out = new FileOutputStream(tempFile)) {
+                        byte[] buffer = new byte[8192];
+                        int len;
+                        while ((len = in.read(buffer)) != -1) {
+                            out.write(buffer, 0, len);
+                        }
+                    }
+                    System.load(tempFile.getAbsolutePath());
+                    success = true;
+                } catch (Exception e) {
+                    System.err.println("[ERROR] Failed to extract pbr_ocl from JAR: " + e.getMessage());
+                }
+            }
+            if (!success) {
+                try {
+                    System.loadLibrary("pbr_ocl");
+                    success = true;
+                } catch (UnsatisfiedLinkError e) {
+                    System.err.println("[ERROR] Failed to load pbr_ocl native library: " + e.getMessage());
+                }
+            }
+            loaded = success;
         }
     }
 
@@ -20,4 +53,13 @@ public class CLNative {
     public static native float[] getBiases(long handle);
     public static native void setWeights(long handle, float[] weights);
     public static native void setBiases(long handle, float[] biases);
+
+    public static native long createViT(int embedDim, int numLayers, int numHeads, int mlpDim, int seqLen, int inChannels, long seed);
+    public static native long createViTWithWeights(int embedDim, int numLayers, int numHeads, int mlpDim, int seqLen, int inChannels, float[] weights, float[] biases);
+    public static native void destroyViT(long handle);
+    public static native void forwardViT(long handle, float[] input, float[] output, int batchSize);
+    public static native float[] getViTWeights(long handle);
+    public static native float[] getViTBiases(long handle);
+    public static native void setViTWeights(long handle, float[] weights);
+    public static native void setViTBiases(long handle, float[] biases);
 }

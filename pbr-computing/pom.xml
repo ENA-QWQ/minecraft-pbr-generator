@@ -11,7 +11,6 @@
     </parent>
 
     <artifactId>pbr-computing</artifactId>
-    <packaging>jar</packaging>
 
     <dependencies>
         <dependency>
@@ -19,5 +18,34 @@
             <artifactId>pbr-common</artifactId>
             <version>1.1.0</version>
         </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.mc.pbr</groupId>
+            <artifactId>pbr-opencl-native</artifactId>
+            <version>1.1.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <forkCount>0</forkCount>
+                    <argLine>-Djava.library.path=${project.basedir}/../pbr-opencl-native/target/classes</argLine>
+                    <includes>
+                        <include>**/*Test.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

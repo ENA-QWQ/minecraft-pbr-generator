@@ -1,0 +1,5 @@
+vit:
+  embed_dim: 64
+  num_layers: 4
+  num_heads: 4
+  mlp_dim: 128

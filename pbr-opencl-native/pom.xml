@@ -13,14 +13,6 @@
     <artifactId>pbr-opencl-native</artifactId>
     <packaging>jar</packaging>
 
-    <dependencies>
-        <dependency>
-            <groupId>com.mc.pbr</groupId>
-            <artifactId>pbr-computing</artifactId>
-            <version>1.1.0</version>
-        </dependency>
-    </dependencies>
-
     <build>
         <plugins>
             <plugin>
@@ -63,6 +55,7 @@
                                 <argument>-I${env.JAVA_HOME}/include/win32</argument>
                                 <argument>src/main/c/jni_bridge.c</argument>
                                 <argument>src/main/c/ocl_backend.c</argument>
+                                <argument>src/main/c/vit_ocl_backend.c</argument>
                                 <argument>-o</argument>
                                 <argument>${project.basedir}/target/classes/pbr_ocl.dll</argument>
                                 <argument>-lOpenCL</argument>
