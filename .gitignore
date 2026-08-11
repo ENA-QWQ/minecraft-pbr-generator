@@ -42,3 +42,4 @@ build/
 /dataset/
 height_model.ser
 /output/
+config.yml
