@@ -97,5 +97,6 @@ int vit_backend_get_total_weights(VitBackend* backend);
 int vit_backend_get_total_biases(VitBackend* backend);
 float vit_backend_mpp_forward(VitBackend* backend, const int* mask_indices, const int* targets, int batch_size, int num_masked, int num_classes);
 void vit_backend_mpp_backward(VitBackend* backend, const int* mask_indices, const int* targets, int batch_size, int num_masked, int num_classes, float loss_scale);
+void vit_backend_get_gradients(VitBackend* backend, float* out);
 
 #endif

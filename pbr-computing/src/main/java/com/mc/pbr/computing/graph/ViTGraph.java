@@ -118,6 +118,11 @@ public class ViTGraph implements ModelGraph {
         return CLNative.getViTWeights(nativeHandle);
     }
 
+    public float[] getGradients() {
+        checkClosed();
+        return CLNative.getViTGradients(nativeHandle);
+    }
+
     @Override
     public float[] getBiases() {
         checkClosed();

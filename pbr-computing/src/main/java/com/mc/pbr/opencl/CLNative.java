@@ -67,4 +67,5 @@ public class CLNative {
     public static native void setViTBiases(long handle, float[] biases);
     public static native float mppForwardViT(long handle, int[] maskIndices, int[] targets, int batchSize, int numMasked, int numClasses);
     public static native void mppBackwardViT(long handle, int[] maskIndices, int[] targets, int batchSize, int numMasked, int numClasses, float lossScale);
+    public static native float[] getViTGradients(long handle);
 }

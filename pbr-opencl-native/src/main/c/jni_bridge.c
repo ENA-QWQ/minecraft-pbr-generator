@@ -258,3 +258,15 @@ JNIEXPORT void JNICALL Java_com_mc_pbr_opencl_CLNative_mppBackwardViT(
     (*env)->ReleaseIntArrayElements(env, jMaskIndices, maskIndices, JNI_ABORT);
     (*env)->ReleaseIntArrayElements(env, jTargets, targets, JNI_ABORT);
 }
+
+JNIEXPORT jfloatArray JNICALL Java_com_mc_pbr_opencl_CLNative_getViTGradients(
+    JNIEnv* env, jclass clazz, jlong handle) {
+    VitBackend* backend = (VitBackend*)(intptr_t)handle;
+    if (!backend) return NULL;
+    int total = vit_backend_get_total_weights(backend);
+    jfloatArray result = (*env)->NewFloatArray(env, total);
+    float* arr = (*env)->GetFloatArrayElements(env, result, NULL);
+    vit_backend_get_gradients(backend, arr);
+    (*env)->ReleaseFloatArrayElements(env, result, arr, 0);
+    return result;
+}

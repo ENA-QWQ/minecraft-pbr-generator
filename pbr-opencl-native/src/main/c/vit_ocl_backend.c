@@ -946,3 +946,10 @@ void vit_backend_mpp_backward(VitBackend* backend, const int* mask_indices, cons
     clReleaseMemObject(d_mask_indices);
     clReleaseMemObject(d_targets);
 }
+
+void vit_backend_get_gradients(VitBackend* backend, float* out) {
+    if (!backend || !out) return;
+    clFinish(backend->queue);
+    clEnqueueReadBuffer(backend->queue, backend->d_gradWeights, CL_TRUE, 0,
+        backend->total_weights * sizeof(float), out, 0, NULL, NULL);
+}
