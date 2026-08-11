@@ -43,7 +43,6 @@ public class ViTGraph implements ModelGraph {
         totalBiases += embedDim;
         totalWeights += embedDim;
         totalBiases += 1;
-
         if (weights != null && weights.length != totalWeights) {
             throw new RuntimeException("Invalid weights length: expected " + totalWeights + ", got " + weights.length);
         }
@@ -61,8 +60,10 @@ public class ViTGraph implements ModelGraph {
 
     @Override
     public int getFeatureDim() { return featureDim; }
+
     @Override
     public int getLabelDim() { return labelDim; }
+
     @Override
     public int[] getLayerSizes() { return layerSizes.clone(); }
 
@@ -92,7 +93,17 @@ public class ViTGraph implements ModelGraph {
                 offset += row.length;
             }
         }
-        CLNative.updateViT(nativeHandle, flatGradWeights, gradBiases, batchSize, lr, momentum);
+        CLNative.adamwUpdateViT(nativeHandle, batchSize, lr, 0.9f, 0.999f, 1e-8f, 0.1f, 0);
+    }
+
+    public void adamwUpdate(int batchSize, float lr, float beta1, float beta2, float epsilon, float weightDecay, int step) {
+        checkClosed();
+        CLNative.adamwUpdateViT(nativeHandle, batchSize, lr, beta1, beta2, epsilon, weightDecay, step);
+    }
+
+    public void clipGradients(float maxNorm) {
+        checkClosed();
+        CLNative.clipGradientsViT(nativeHandle, maxNorm);
     }
 
     @Override
@@ -123,6 +134,16 @@ public class ViTGraph implements ModelGraph {
     public void setBiases(float[] biases) {
         checkClosed();
         CLNative.setViTBiases(nativeHandle, biases);
+    }
+
+    public float mppForward(int[] maskIndices, int[] targets, int batchSize, int numMasked, int numClasses) {
+        checkClosed();
+        return CLNative.mppForwardViT(nativeHandle, maskIndices, targets, batchSize, numMasked, numClasses);
+    }
+
+    public void mppBackward(int[] maskIndices, int[] targets, int batchSize, int numMasked, int numClasses, float lossScale) {
+        checkClosed();
+        CLNative.mppBackwardViT(nativeHandle, maskIndices, targets, batchSize, numMasked, numClasses, lossScale);
     }
 
     private void checkClosed() {

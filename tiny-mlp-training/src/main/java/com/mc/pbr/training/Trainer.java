@@ -16,6 +16,11 @@ public class Trainer {
     private static final String ANSI_CYAN = "\u001B[36m";
     private static final String ANSI_BOLD = "\u001B[1m";
     private static final float MOMENTUM = 0.9f;
+    private static final float BETA1 = 0.9f;
+    private static final float BETA2 = 0.999f;
+    private static final float EPS = 1e-8f;
+    private static final float WEIGHT_DECAY = 0.1f;
+    private static final float GRAD_CLIP = 1.0f;
 
     private final String dataPath;
     private final String labelPath;
@@ -143,6 +148,14 @@ public class Trainer {
         long totalStart = System.currentTimeMillis();
         int totalBatches = (int) Math.ceil((double) trainSize / batchSize);
 
+        float[] mWeights = null, vWeights = null, mBiases = null, vBiases = null;
+        int totalWeights = calcTotalWeights();
+        int totalBiases = calcTotalBiases();
+        mWeights = new float[totalWeights];
+        vWeights = new float[totalWeights];
+        mBiases = new float[totalBiases];
+        vBiases = new float[totalBiases];
+
         for (int epoch = 1; epoch <= maxEpochs; epoch++) {
             long epochStart = System.currentTimeMillis();
             fisherYatesShuffle(localTrainIdx, rng);
@@ -167,6 +180,10 @@ public class Trainer {
                     gradOutput[i] = batchOutput[i] - batchLabel[i];
                 }
                 backend.backwardBatch(batchInput, batchLabel, gradOutput, actualBatchSize);
+
+                float[] flatGradWeights = backend.getWeights();
+                float[] weights = backend.getWeights();
+                float[] biases = backend.getBiases();
                 backend.update(null, null, actualBatchSize, lr, MOMENTUM);
 
                 batchCount++;

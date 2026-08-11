@@ -174,20 +174,6 @@ JNIEXPORT void JNICALL Java_com_mc_pbr_opencl_CLNative_backwardViT(
     (*env)->ReleaseFloatArrayElements(env, jGradOutput, gradOutput, JNI_ABORT);
 }
 
-JNIEXPORT void JNICALL Java_com_mc_pbr_opencl_CLNative_updateViT(
-    JNIEnv* env, jclass clazz, jlong handle, jfloatArray jGradWeights, jfloatArray jGradBiases,
-    jint batchSize, jfloat lr, jfloat momentum) {
-    VitBackend* backend = (VitBackend*)(intptr_t)handle;
-    if (!backend) return;
-    float* gradWeights = NULL;
-    float* gradBiases = NULL;
-    if (jGradWeights) gradWeights = (*env)->GetFloatArrayElements(env, jGradWeights, NULL);
-    if (jGradBiases) gradBiases = (*env)->GetFloatArrayElements(env, jGradBiases, NULL);
-    vit_backend_update(backend, gradWeights, gradBiases, batchSize, lr, momentum);
-    if (gradWeights) (*env)->ReleaseFloatArrayElements(env, jGradWeights, gradWeights, JNI_ABORT);
-    if (gradBiases) (*env)->ReleaseFloatArrayElements(env, jGradBiases, gradBiases, JNI_ABORT);
-}
-
 JNIEXPORT void JNICALL Java_com_mc_pbr_opencl_CLNative_zeroGradientsViT(
     JNIEnv* env, jclass clazz, jlong handle) {
     VitBackend* backend = (VitBackend*)(intptr_t)handle;
@@ -234,4 +220,41 @@ JNIEXPORT void JNICALL Java_com_mc_pbr_opencl_CLNative_setViTBiases(
     float* biases = (*env)->GetFloatArrayElements(env, jBiases, NULL);
     vit_backend_set_biases(backend, biases);
     (*env)->ReleaseFloatArrayElements(env, jBiases, biases, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL Java_com_mc_pbr_opencl_CLNative_adamwUpdateViT(
+        JNIEnv* env, jclass clazz, jlong handle, jint batchSize, jfloat lr, jfloat beta1, jfloat beta2, jfloat epsilon, jfloat weightDecay, jint step) {
+    VitBackend* backend = (VitBackend*)(intptr_t)handle;
+    if (!backend) return;
+    vit_backend_adamw_update(backend, batchSize, lr, beta1, beta2, epsilon, weightDecay, step);
+}
+
+JNIEXPORT void JNICALL Java_com_mc_pbr_opencl_CLNative_clipGradientsViT(
+        JNIEnv* env, jclass clazz, jlong handle, jfloat maxNorm) {
+    VitBackend* backend = (VitBackend*)(intptr_t)handle;
+    if (!backend) return;
+    vit_backend_clip_gradients(backend, maxNorm);
+}
+
+JNIEXPORT jfloat JNICALL Java_com_mc_pbr_opencl_CLNative_mppForwardViT(
+        JNIEnv* env, jclass clazz, jlong handle, jintArray jMaskIndices, jintArray jTargets, jint batchSize, jint numMasked, jint numClasses) {
+    VitBackend* backend = (VitBackend*)(intptr_t)handle;
+    if (!backend) return 0.0f;
+    int* maskIndices = (*env)->GetIntArrayElements(env, jMaskIndices, NULL);
+    int* targets = (*env)->GetIntArrayElements(env, jTargets, NULL);
+    float loss = vit_backend_mpp_forward(backend, maskIndices, targets, batchSize, numMasked, numClasses);
+    (*env)->ReleaseIntArrayElements(env, jMaskIndices, maskIndices, JNI_ABORT);
+    (*env)->ReleaseIntArrayElements(env, jTargets, targets, JNI_ABORT);
+    return loss;
+}
+
+JNIEXPORT void JNICALL Java_com_mc_pbr_opencl_CLNative_mppBackwardViT(
+        JNIEnv* env, jclass clazz, jlong handle, jintArray jMaskIndices, jintArray jTargets, jint batchSize, jint numMasked, jint numClasses, jfloat lossScale) {
+    VitBackend* backend = (VitBackend*)(intptr_t)handle;
+    if (!backend) return;
+    int* maskIndices = (*env)->GetIntArrayElements(env, jMaskIndices, NULL);
+    int* targets = (*env)->GetIntArrayElements(env, jTargets, NULL);
+    vit_backend_mpp_backward(backend, maskIndices, targets, batchSize, numMasked, numClasses, lossScale);
+    (*env)->ReleaseIntArrayElements(env, jMaskIndices, maskIndices, JNI_ABORT);
+    (*env)->ReleaseIntArrayElements(env, jTargets, targets, JNI_ABORT);
 }

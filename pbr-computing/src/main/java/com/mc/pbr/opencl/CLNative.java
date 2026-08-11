@@ -41,7 +41,6 @@ public class CLNative {
             loaded = success;
         }
     }
-
     public static native long create(int[] layerSizes, long seed);
     public static native long createWithWeights(int[] layerSizes, float[] weights, float[] biases);
     public static native void destroy(long handle);
@@ -59,10 +58,13 @@ public class CLNative {
     public static native void destroyViT(long handle);
     public static native void forwardViT(long handle, float[] input, float[] output, int batchSize);
     public static native void backwardViT(long handle, float[] input, float[] label, float[] gradOutput, int batchSize);
-    public static native void updateViT(long handle, float[] gradWeights, float[] gradBiases, int batchSize, float lr, float momentum);
+    public static native void adamwUpdateViT(long handle, int batchSize, float lr, float beta1, float beta2, float epsilon, float weightDecay, int step);
+    public static native void clipGradientsViT(long handle, float maxNorm);
     public static native void zeroGradientsViT(long handle);
     public static native float[] getViTWeights(long handle);
     public static native float[] getViTBiases(long handle);
     public static native void setViTWeights(long handle, float[] weights);
     public static native void setViTBiases(long handle, float[] biases);
+    public static native float mppForwardViT(long handle, int[] maskIndices, int[] targets, int batchSize, int numMasked, int numClasses);
+    public static native void mppBackwardViT(long handle, int[] maskIndices, int[] targets, int batchSize, int numMasked, int numClasses, float lossScale);
 }
