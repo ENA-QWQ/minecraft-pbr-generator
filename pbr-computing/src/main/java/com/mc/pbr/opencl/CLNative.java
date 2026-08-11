@@ -58,6 +58,9 @@ public class CLNative {
     public static native long createViTWithWeights(int embedDim, int numLayers, int numHeads, int mlpDim, int seqLen, int inChannels, float[] weights, float[] biases);
     public static native void destroyViT(long handle);
     public static native void forwardViT(long handle, float[] input, float[] output, int batchSize);
+    public static native void backwardViT(long handle, float[] input, float[] label, float[] gradOutput, int batchSize);
+    public static native void updateViT(long handle, float[] gradWeights, float[] gradBiases, int batchSize, float lr, float momentum);
+    public static native void zeroGradientsViT(long handle);
     public static native float[] getViTWeights(long handle);
     public static native float[] getViTBiases(long handle);
     public static native void setViTWeights(long handle, float[] weights);

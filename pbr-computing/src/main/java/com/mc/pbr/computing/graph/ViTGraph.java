@@ -74,17 +74,31 @@ public class ViTGraph implements ModelGraph {
 
     @Override
     public void backward(float[] input, float[] label, float[] gradOutput, int batchSize) {
-        throw new UnsupportedOperationException("Backward not implemented");
+        checkClosed();
+        CLNative.backwardViT(nativeHandle, input, label, gradOutput, batchSize);
     }
 
     @Override
     public void update(float[][] gradWeights, float[] gradBiases, int batchSize, float lr, float momentum) {
-        throw new UnsupportedOperationException("Update not implemented");
+        checkClosed();
+        float[] flatGradWeights = null;
+        if (gradWeights != null) {
+            int total = 0;
+            for (float[] row : gradWeights) total += row.length;
+            flatGradWeights = new float[total];
+            int offset = 0;
+            for (float[] row : gradWeights) {
+                System.arraycopy(row, 0, flatGradWeights, offset, row.length);
+                offset += row.length;
+            }
+        }
+        CLNative.updateViT(nativeHandle, flatGradWeights, gradBiases, batchSize, lr, momentum);
     }
 
     @Override
     public void zeroGradients() {
-        throw new UnsupportedOperationException("zeroGradients not implemented");
+        checkClosed();
+        CLNative.zeroGradientsViT(nativeHandle);
     }
 
     @Override

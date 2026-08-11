@@ -161,6 +161,39 @@ JNIEXPORT void JNICALL Java_com_mc_pbr_opencl_CLNative_forwardViT(
     (*env)->ReleaseFloatArrayElements(env, jOutput, output, 0);
 }
 
+JNIEXPORT void JNICALL Java_com_mc_pbr_opencl_CLNative_backwardViT(
+    JNIEnv* env, jclass clazz, jlong handle, jfloatArray jInput, jfloatArray jLabel, jfloatArray jGradOutput, jint batchSize) {
+    VitBackend* backend = (VitBackend*)(intptr_t)handle;
+    if (!backend) return;
+    float* input = (*env)->GetFloatArrayElements(env, jInput, NULL);
+    float* label = (*env)->GetFloatArrayElements(env, jLabel, NULL);
+    float* gradOutput = (*env)->GetFloatArrayElements(env, jGradOutput, NULL);
+    vit_backend_backward(backend, input, label, gradOutput, batchSize);
+    (*env)->ReleaseFloatArrayElements(env, jInput, input, JNI_ABORT);
+    (*env)->ReleaseFloatArrayElements(env, jLabel, label, JNI_ABORT);
+    (*env)->ReleaseFloatArrayElements(env, jGradOutput, gradOutput, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL Java_com_mc_pbr_opencl_CLNative_updateViT(
+    JNIEnv* env, jclass clazz, jlong handle, jfloatArray jGradWeights, jfloatArray jGradBiases,
+    jint batchSize, jfloat lr, jfloat momentum) {
+    VitBackend* backend = (VitBackend*)(intptr_t)handle;
+    if (!backend) return;
+    float* gradWeights = NULL;
+    float* gradBiases = NULL;
+    if (jGradWeights) gradWeights = (*env)->GetFloatArrayElements(env, jGradWeights, NULL);
+    if (jGradBiases) gradBiases = (*env)->GetFloatArrayElements(env, jGradBiases, NULL);
+    vit_backend_update(backend, gradWeights, gradBiases, batchSize, lr, momentum);
+    if (gradWeights) (*env)->ReleaseFloatArrayElements(env, jGradWeights, gradWeights, JNI_ABORT);
+    if (gradBiases) (*env)->ReleaseFloatArrayElements(env, jGradBiases, gradBiases, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL Java_com_mc_pbr_opencl_CLNative_zeroGradientsViT(
+    JNIEnv* env, jclass clazz, jlong handle) {
+    VitBackend* backend = (VitBackend*)(intptr_t)handle;
+    if (backend) vit_backend_zero_gradients(backend);
+}
+
 JNIEXPORT jfloatArray JNICALL Java_com_mc_pbr_opencl_CLNative_getViTWeights(
     JNIEnv* env, jclass clazz, jlong handle) {
     VitBackend* backend = (VitBackend*)(intptr_t)handle;
