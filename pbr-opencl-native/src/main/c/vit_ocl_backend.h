@@ -63,6 +63,9 @@ typedef struct {
     cl_mem d_v_mask_weights;
     cl_mem d_m_mask_biases;
     cl_mem d_v_mask_biases;
+    cl_mem d_layer_inputs;
+    cl_mem d_ln1_outputs;
+    cl_mem d_ln2_inputs;
     float* host_weights;
     float* host_biases;
     float* host_mWeights;

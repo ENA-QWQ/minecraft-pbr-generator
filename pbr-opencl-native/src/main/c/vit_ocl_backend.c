@@ -103,6 +103,7 @@ static int allocate_buffers(VitBackend* backend) {
     int embed_dim = backend->embed_dim;
     int total_tokens = seq_len + 1;
     int mlp_dim = backend->mlp_dim;
+    int num_layers = backend->num_layers;
 
     backend->d_input = clCreateBuffer(backend->context, CL_MEM_READ_WRITE,
         MAX_BATCH * seq_len * backend->in_channels * sizeof(float), NULL, &err);
@@ -246,6 +247,18 @@ static int allocate_buffers(VitBackend* backend) {
 
     backend->d_v_mask_biases = clCreateBuffer(backend->context, CL_MEM_READ_WRITE,
         512 * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) return 0;
+
+    backend->d_layer_inputs = clCreateBuffer(backend->context, CL_MEM_READ_WRITE,
+        num_layers * MAX_BATCH * total_tokens * embed_dim * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) return 0;
+
+    backend->d_ln1_outputs = clCreateBuffer(backend->context, CL_MEM_READ_WRITE,
+        num_layers * MAX_BATCH * total_tokens * embed_dim * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) return 0;
+
+    backend->d_ln2_inputs = clCreateBuffer(backend->context, CL_MEM_READ_WRITE,
+        num_layers * MAX_BATCH * total_tokens * embed_dim * sizeof(float), NULL, &err);
     if (err != CL_SUCCESS) return 0;
 
     backend->host_weights = (float*)malloc(backend->total_weights * sizeof(float));
@@ -436,6 +449,9 @@ void vit_backend_destroy(VitBackend* backend) {
     if (backend->d_v_mask_weights) clReleaseMemObject(backend->d_v_mask_weights);
     if (backend->d_m_mask_biases) clReleaseMemObject(backend->d_m_mask_biases);
     if (backend->d_v_mask_biases) clReleaseMemObject(backend->d_v_mask_biases);
+    if (backend->d_layer_inputs) clReleaseMemObject(backend->d_layer_inputs);
+    if (backend->d_ln1_outputs) clReleaseMemObject(backend->d_ln1_outputs);
+    if (backend->d_ln2_inputs) clReleaseMemObject(backend->d_ln2_inputs);
     free(backend->host_weights);
     free(backend->host_biases);
     free(backend->host_mWeights);
@@ -482,6 +498,10 @@ void vit_backend_forward(VitBackend* backend, const float* input, float* output,
 
     cl_mem current = backend->d_token_embeds;
     for (int l = 0; l < num_layers; l++) {
+        clEnqueueCopyBuffer(backend->queue, current, backend->d_layer_inputs,
+            0, l * batch_size * total_tokens * embed_dim * sizeof(float),
+            batch_size * total_tokens * embed_dim * sizeof(float), 0, NULL, NULL);
+
         int ln1_gamma_off = offsets[3 + l * 8 + 0];
         int ln1_beta_off = bias_offsets[1 + l * 8 + 0];
         int qkv_off = offsets[3 + l * 8 + 1];
@@ -509,6 +529,9 @@ void vit_backend_forward(VitBackend* backend, const float* input, float* output,
         size_t global_ln = batch_size * total_tokens;
         err = clEnqueueNDRangeKernel(backend->queue, backend->kernel_layernorm, 1, NULL, &global_ln, NULL, 0, NULL, NULL);
         if (err != CL_SUCCESS) return;
+        clEnqueueCopyBuffer(backend->queue, backend->d_layernorm_input, backend->d_ln1_outputs,
+            0, l * batch_size * total_tokens * embed_dim * sizeof(float),
+            batch_size * total_tokens * embed_dim * sizeof(float), 0, NULL, NULL);
 
         clSetKernelArg(backend->kernel_qkv_proj, 0, sizeof(cl_mem), &backend->d_layernorm_input);
         clSetKernelArg(backend->kernel_qkv_proj, 1, sizeof(cl_mem), &backend->d_weights);
@@ -546,6 +569,9 @@ void vit_backend_forward(VitBackend* backend, const float* input, float* output,
         size_t global_add = batch_size * total_tokens * embed_dim;
         err = clEnqueueNDRangeKernel(backend->queue, backend->kernel_add, 1, NULL, &global_add, NULL, 0, NULL, NULL);
         if (err != CL_SUCCESS) return;
+        clEnqueueCopyBuffer(backend->queue, current, backend->d_ln2_inputs,
+            0, l * batch_size * total_tokens * embed_dim * sizeof(float),
+            batch_size * total_tokens * embed_dim * sizeof(float), 0, NULL, NULL);
 
         clSetKernelArg(backend->kernel_layernorm, 0, sizeof(cl_mem), &current);
         clSetKernelArg(backend->kernel_layernorm, 1, sizeof(cl_mem), &backend->d_weights);
@@ -683,6 +709,11 @@ void vit_backend_backward(VitBackend* backend, const float* input, const float* 
         int proj_off = offsets[3 + l * 8 + 2];
         int proj_b_off = bias_offsets[1 + l * 8 + 2];
 
+        size_t layer_offset = l * batch_size * total_tokens * embed_dim * sizeof(float);
+
+        clEnqueueCopyBuffer(backend->queue, backend->d_ln2_inputs, backend->d_layernorm_input,
+            layer_offset, 0, batch_size * total_tokens * embed_dim * sizeof(float), 0, NULL, NULL);
+
         clSetKernelArg(backend->kernel_ffn_bwd, 0, sizeof(cl_mem), &current_grad);
         clSetKernelArg(backend->kernel_ffn_bwd, 1, sizeof(cl_mem), &backend->d_weights);
         clSetKernelArg(backend->kernel_ffn_bwd, 2, sizeof(cl_mem), &backend->d_biases);
@@ -701,6 +732,24 @@ void vit_backend_backward(VitBackend* backend, const float* input, const float* 
         clSetKernelArg(backend->kernel_ffn_bwd, 15, sizeof(int), &ffn2_b_off);
         size_t global_ffn_bwd = batch_size * total_tokens;
         err = clEnqueueNDRangeKernel(backend->queue, backend->kernel_ffn_bwd, 1, NULL, &global_ffn_bwd, NULL, 0, NULL, NULL);
+        if (err != CL_SUCCESS) return;
+        clFinish(backend->queue);
+
+        clSetKernelArg(backend->kernel_layernorm_bwd, 0, sizeof(cl_mem), &backend->d_layernorm_input);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 1, sizeof(cl_mem), &backend->d_weights);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 2, sizeof(cl_mem), &backend->d_biases);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 3, sizeof(cl_mem), &backend->d_gradWeights);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 4, sizeof(cl_mem), &backend->d_gradBiases);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 5, sizeof(cl_mem), &backend->d_layernorm_input);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 6, sizeof(cl_mem), &backend->d_layernorm_input);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 7, sizeof(cl_mem), &backend->d_layernorm_mean);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 8, sizeof(cl_mem), &backend->d_layernorm_inv_std);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 9, sizeof(int), &batch_size);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 10, sizeof(int), &total_tokens);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 11, sizeof(int), &embed_dim);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 12, sizeof(int), &ln2_gamma_off);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 13, sizeof(int), &ln2_beta_off);
+        err = clEnqueueNDRangeKernel(backend->queue, backend->kernel_layernorm_bwd, 1, NULL, &global_ffn_bwd, NULL, 0, NULL, NULL);
         if (err != CL_SUCCESS) return;
         clFinish(backend->queue);
 
@@ -739,18 +788,42 @@ void vit_backend_backward(VitBackend* backend, const float* input, const float* 
         if (err != CL_SUCCESS) return;
         clFinish(backend->queue);
 
+        clEnqueueCopyBuffer(backend->queue, backend->d_ln1_outputs, backend->d_layernorm_input,
+            layer_offset, 0, batch_size * total_tokens * embed_dim * sizeof(float), 0, NULL, NULL);
+
         clSetKernelArg(backend->kernel_qkv_proj_bwd, 0, sizeof(cl_mem), &backend->d_grad_qkv);
         clSetKernelArg(backend->kernel_qkv_proj_bwd, 1, sizeof(cl_mem), &backend->d_weights);
         clSetKernelArg(backend->kernel_qkv_proj_bwd, 2, sizeof(cl_mem), &backend->d_layernorm_input);
         clSetKernelArg(backend->kernel_qkv_proj_bwd, 3, sizeof(cl_mem), &backend->d_gradWeights);
         clSetKernelArg(backend->kernel_qkv_proj_bwd, 4, sizeof(cl_mem), &backend->d_gradBiases);
-        clSetKernelArg(backend->kernel_qkv_proj_bwd, 5, sizeof(cl_mem), &current_grad);
+        clSetKernelArg(backend->kernel_qkv_proj_bwd, 5, sizeof(cl_mem), &backend->d_layernorm_input);
         clSetKernelArg(backend->kernel_qkv_proj_bwd, 6, sizeof(int), &batch_size);
         clSetKernelArg(backend->kernel_qkv_proj_bwd, 7, sizeof(int), &total_tokens);
         clSetKernelArg(backend->kernel_qkv_proj_bwd, 8, sizeof(int), &embed_dim);
         clSetKernelArg(backend->kernel_qkv_proj_bwd, 9, sizeof(int), &qkv_off);
         clSetKernelArg(backend->kernel_qkv_proj_bwd, 10, sizeof(int), &qkv_b_off);
         err = clEnqueueNDRangeKernel(backend->queue, backend->kernel_qkv_proj_bwd, 1, NULL, &global_attn_bwd, NULL, 0, NULL, NULL);
+        if (err != CL_SUCCESS) return;
+        clFinish(backend->queue);
+
+        clEnqueueCopyBuffer(backend->queue, backend->d_layer_inputs, backend->d_layernorm_input,
+            layer_offset, 0, batch_size * total_tokens * embed_dim * sizeof(float), 0, NULL, NULL);
+
+        clSetKernelArg(backend->kernel_layernorm_bwd, 0, sizeof(cl_mem), &backend->d_layernorm_input);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 1, sizeof(cl_mem), &backend->d_weights);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 2, sizeof(cl_mem), &backend->d_biases);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 3, sizeof(cl_mem), &backend->d_gradWeights);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 4, sizeof(cl_mem), &backend->d_gradBiases);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 5, sizeof(cl_mem), &backend->d_layernorm_input);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 6, sizeof(cl_mem), &backend->d_layernorm_input);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 7, sizeof(cl_mem), &backend->d_layernorm_mean);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 8, sizeof(cl_mem), &backend->d_layernorm_inv_std);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 9, sizeof(int), &batch_size);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 10, sizeof(int), &total_tokens);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 11, sizeof(int), &embed_dim);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 12, sizeof(int), &ln1_gamma_off);
+        clSetKernelArg(backend->kernel_layernorm_bwd, 13, sizeof(int), &ln1_beta_off);
+        err = clEnqueueNDRangeKernel(backend->queue, backend->kernel_layernorm_bwd, 1, NULL, &global_attn_bwd, NULL, 0, NULL, NULL);
         if (err != CL_SUCCESS) return;
         clFinish(backend->queue);
 
