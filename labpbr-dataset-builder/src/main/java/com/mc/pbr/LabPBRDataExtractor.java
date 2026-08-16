@@ -9,16 +9,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class LabPBRDataExtractor {
-    private static final String ANSI_RESET = "\u001B[0m";
-    private static final String ANSI_RED = "\u001B[31m";
-    private static final String ANSI_YELLOW = "\u001B[33m";
-    private static final String ANSI_BOLD = "\u001B[1m";
-
-    private static final int TARGET_SIZE = 128;
     private final int patchRadius;
+    private final int targetSize;
 
-    public LabPBRDataExtractor(int patchRadius) {
+    public LabPBRDataExtractor(int patchRadius, int targetSize) {
         this.patchRadius = patchRadius;
+        this.targetSize = targetSize;
     }
 
     public ExtractionResult extract(LabPBRValidator.TextureTriple triple) {
@@ -29,8 +25,8 @@ public class LabPBRDataExtractor {
 
             int w = baseImg.getWidth();
             int h = baseImg.getHeight();
-            if (w != TARGET_SIZE || h != TARGET_SIZE) {
-                System.out.println(ANSI_YELLOW + "[WARNING] " + ANSI_RESET + "Resized image size abnormal: " + triple.base.getName());
+            if (w != targetSize || h != targetSize) {
+                System.out.println("[WARNING] Resized image size abnormal: " + triple.base.getName());
                 return null;
             }
 
@@ -56,7 +52,7 @@ public class LabPBRDataExtractor {
 
             return new ExtractionResult(features, labels);
         } catch (IOException e) {
-            System.out.println(ANSI_RED + ANSI_BOLD + "[ERROR] " + ANSI_RESET + "Failed to extract texture triple: " + triple.base);
+            System.out.println("[ERROR] Failed to extract texture triple: " + triple.base);
             return null;
         }
     }
@@ -64,14 +60,14 @@ public class LabPBRDataExtractor {
     private BufferedImage resizeToTarget(BufferedImage src) {
         int w = src.getWidth();
         int h = src.getHeight();
-        if (w == TARGET_SIZE && h == TARGET_SIZE) {
+        if (w == targetSize && h == targetSize) {
             return src;
         }
-        BufferedImage resized = new BufferedImage(TARGET_SIZE, TARGET_SIZE, BufferedImage.TYPE_INT_ARGB);
+        BufferedImage resized = new BufferedImage(targetSize, targetSize, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = resized.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
         g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-        g.drawImage(src, 0, 0, TARGET_SIZE, TARGET_SIZE, null);
+        g.drawImage(src, 0, 0, targetSize, targetSize, null);
         g.dispose();
         return resized;
     }

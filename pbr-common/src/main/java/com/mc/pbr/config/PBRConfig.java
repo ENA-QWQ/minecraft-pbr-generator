@@ -1,7 +1,5 @@
 package com.mc.pbr.config;
 
-import java.util.Arrays;
-
 public class PBRConfig {
     private GlobalConfig global = new GlobalConfig();
     private DatasetBuilderConfig datasetBuilder = new DatasetBuilderConfig();
@@ -23,6 +21,7 @@ public class PBRConfig {
         private int labelDim = 5;
         private int patchSize = 5;
         private String backend = "cpu";
+        private GPUConfig gpu = new GPUConfig();
 
         public long getSeed() { return seed; }
         public void setSeed(long seed) { this.seed = seed; }
@@ -34,6 +33,24 @@ public class PBRConfig {
         public void setPatchSize(int patchSize) { this.patchSize = patchSize; }
         public String getBackend() { return backend; }
         public void setBackend(String backend) { this.backend = backend; }
+        public GPUConfig getGpu() { return gpu; }
+        public void setGpu(GPUConfig gpu) { this.gpu = gpu; }
+    }
+
+    public static class GPUConfig {
+        private int maxBatchSize = 65536;
+        private int workgroupSize = 256;
+        private int mppNumClasses = 512;
+        private float weightInitStd = 0.02f;
+
+        public int getMaxBatchSize() { return maxBatchSize; }
+        public void setMaxBatchSize(int maxBatchSize) { this.maxBatchSize = maxBatchSize; }
+        public int getWorkgroupSize() { return workgroupSize; }
+        public void setWorkgroupSize(int workgroupSize) { this.workgroupSize = workgroupSize; }
+        public int getMppNumClasses() { return mppNumClasses; }
+        public void setMppNumClasses(int mppNumClasses) { this.mppNumClasses = mppNumClasses; }
+        public float getWeightInitStd() { return weightInitStd; }
+        public void setWeightInitStd(float weightInitStd) { this.weightInitStd = weightInitStd; }
     }
 
     public static class DatasetBuilderConfig {
@@ -88,6 +105,12 @@ public class PBRConfig {
         private float lrDecay = 0.9f;
         private int lrStep = 10;
         private int[] layers = new int[]{100, 32, 16, 1};
+        private float momentum = 0.9f;
+        private float beta1 = 0.9f;
+        private float beta2 = 0.999f;
+        private float epsilon = 1e-8f;
+        private float weightDecay = 0.1f;
+        private float gradientClipNorm = 1.0f;
 
         public int getBatchSize() { return batchSize; }
         public void setBatchSize(int batchSize) { this.batchSize = batchSize; }
@@ -103,6 +126,18 @@ public class PBRConfig {
         public void setLrStep(int lrStep) { this.lrStep = lrStep; }
         public int[] getLayers() { return layers; }
         public void setLayers(int[] layers) { this.layers = layers; }
+        public float getMomentum() { return momentum; }
+        public void setMomentum(float momentum) { this.momentum = momentum; }
+        public float getBeta1() { return beta1; }
+        public void setBeta1(float beta1) { this.beta1 = beta1; }
+        public float getBeta2() { return beta2; }
+        public void setBeta2(float beta2) { this.beta2 = beta2; }
+        public float getEpsilon() { return epsilon; }
+        public void setEpsilon(float epsilon) { this.epsilon = epsilon; }
+        public float getWeightDecay() { return weightDecay; }
+        public void setWeightDecay(float weightDecay) { this.weightDecay = weightDecay; }
+        public float getGradientClipNorm() { return gradientClipNorm; }
+        public void setGradientClipNorm(float gradientClipNorm) { this.gradientClipNorm = gradientClipNorm; }
     }
 
     public static class InferenceConfig {
@@ -112,6 +147,7 @@ public class PBRConfig {
         private boolean pixelate = false;
         private float baseSmoothness = 0.2f;
         private float baseMetallic = 0.0f;
+        private int inferenceBatchSize = 1024;
         private HeightConfig height = new HeightConfig();
         private NormalConfig normal = new NormalConfig();
 
@@ -127,6 +163,8 @@ public class PBRConfig {
         public void setBaseSmoothness(float baseSmoothness) { this.baseSmoothness = baseSmoothness; }
         public float getBaseMetallic() { return baseMetallic; }
         public void setBaseMetallic(float baseMetallic) { this.baseMetallic = baseMetallic; }
+        public int getInferenceBatchSize() { return inferenceBatchSize; }
+        public void setInferenceBatchSize(int inferenceBatchSize) { this.inferenceBatchSize = inferenceBatchSize; }
         public HeightConfig getHeight() { return height; }
         public void setHeight(HeightConfig height) { this.height = height; }
         public NormalConfig getNormal() { return normal; }

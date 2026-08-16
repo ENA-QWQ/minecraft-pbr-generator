@@ -54,6 +54,11 @@ public class TrainMain {
             System.out.print(hp.getLayers()[i] + (i < hp.getLayers().length - 1 ? "," : ""));
         }
         System.out.println();
+        System.out.printf("  %-12s: %.4f\n", "Momentum", hp.getMomentum());
+        System.out.printf("  %-12s: %.4f\n", "Beta1", hp.getBeta1());
+        System.out.printf("  %-12s: %.4f\n", "Beta2", hp.getBeta2());
+        System.out.printf("  %-12s: %.4f\n", "WeightDecay", hp.getWeightDecay());
+        System.out.printf("  %-12s: %.4f\n", "GradClip", hp.getGradientClipNorm());
 
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + ANSI_BOLD + "Dataset split:" + ANSI_RESET);
         System.out.printf("  %-12s: %d\n", "Total", train.getTotalSamples());
@@ -77,7 +82,13 @@ public class TrainMain {
                     hp.getLayers(),
                     backendType,
                     global.getFeatureDim(),
-                    global.getLabelDim()
+                    global.getLabelDim(),
+                    hp.getMomentum(),
+                    hp.getBeta1(),
+                    hp.getBeta2(),
+                    hp.getEpsilon(),
+                    hp.getWeightDecay(),
+                    hp.getGradientClipNorm()
             );
             trainer.prepareData();
             trainer.train(train.getModelOutput());

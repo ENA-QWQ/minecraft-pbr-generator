@@ -27,15 +27,16 @@ public class InferenceMain {
         System.out.println(ANSI_RESET);
 
         PBRConfig.InferenceConfig inf = config.getInference();
-        PBRConfig.GlobalConfig global = config.getGlobal();   // 新增：读取全局配置
+        PBRConfig.GlobalConfig global = config.getGlobal();
 
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Backend: " + backendType.toUpperCase());
-        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Patch radius: " + global.getPatchSize());  // 新增：打印patch尺寸
+        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Patch radius: " + global.getPatchSize());
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + ANSI_BOLD + "Inference Configuration:" + ANSI_RESET);
         System.out.printf("  %-15s: %s\n", "Output Dir", new File(inf.getOutputDir()).getAbsolutePath());
         System.out.printf("  %-15s: %s\n", "Model", inf.getModelPath());
         System.out.printf("  %-15s: %.2f\n", "Strength", inf.getNormalStrength());
         System.out.printf("  %-15s: [%.2f, %.2f]\n", "Height Range", inf.getHeight().getMin(), inf.getHeight().getMax());
+        System.out.printf("  %-15s: %d\n", "Batch Size", inf.getInferenceBatchSize());
 
         try {
             long startTime = System.currentTimeMillis();
@@ -58,7 +59,8 @@ public class InferenceMain {
                     inf.getHeight().getSmoothRadius(),
                     inf.getHeight().getNormPercentile(),
                     backendType,
-                    global.getPatchSize()  // 新增：传递patchSize给引擎
+                    global.getPatchSize(),
+                    inf.getInferenceBatchSize()
             );
 
             String inputPath = extractInput(args);

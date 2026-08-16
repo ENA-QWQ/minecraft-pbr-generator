@@ -53,8 +53,8 @@ public class CLNative {
     public static native void setWeights(long handle, float[] weights);
     public static native void setBiases(long handle, float[] biases);
 
-    public static native long createViT(int embedDim, int numLayers, int numHeads, int mlpDim, int seqLen, int inChannels, long seed);
-    public static native long createViTWithWeights(int embedDim, int numLayers, int numHeads, int mlpDim, int seqLen, int inChannels, float[] weights, float[] biases);
+    public static native long createViT(int embedDim, int numLayers, int numHeads, int mlpDim, int seqLen, int inChannels, long seed, int mppNumClasses);
+    public static native long createViTWithWeights(int embedDim, int numLayers, int numHeads, int mlpDim, int seqLen, int inChannels, float[] weights, float[] biases, int mppNumClasses);
     public static native void destroyViT(long handle);
     public static native void forwardViT(long handle, float[] input, float[] output, int batchSize);
     public static native void backwardViT(long handle, float[] input, float[] label, float[] gradOutput, int batchSize);

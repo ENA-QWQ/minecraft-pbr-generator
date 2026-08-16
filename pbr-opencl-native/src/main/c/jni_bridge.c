@@ -126,19 +126,19 @@ JNIEXPORT void JNICALL Java_com_mc_pbr_opencl_CLNative_setBiases(
 }
 
 JNIEXPORT jlong JNICALL Java_com_mc_pbr_opencl_CLNative_createViT(
-    JNIEnv* env, jclass clazz, jint embedDim, jint numLayers, jint numHeads, jint mlpDim, jint seqLen, jint inChannels, jlong seed) {
-    VitBackend* backend = vit_backend_create(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, (long)seed);
+    JNIEnv* env, jclass clazz, jint embedDim, jint numLayers, jint numHeads, jint mlpDim, jint seqLen, jint inChannels, jlong seed, jint mppNumClasses) {
+    VitBackend* backend = vit_backend_create(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, (long)seed, mppNumClasses);
     return (jlong)(intptr_t)backend;
 }
 
 JNIEXPORT jlong JNICALL Java_com_mc_pbr_opencl_CLNative_createViTWithWeights(
     JNIEnv* env, jclass clazz, jint embedDim, jint numLayers, jint numHeads, jint mlpDim, jint seqLen, jint inChannels,
-    jfloatArray jWeights, jfloatArray jBiases) {
+    jfloatArray jWeights, jfloatArray jBiases, jint mppNumClasses) {
     float* weights = NULL;
     float* biases = NULL;
     if (jWeights) weights = (*env)->GetFloatArrayElements(env, jWeights, NULL);
     if (jBiases) biases = (*env)->GetFloatArrayElements(env, jBiases, NULL);
-    VitBackend* backend = vit_backend_create_with_weights(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, weights, biases);
+    VitBackend* backend = vit_backend_create_with_weights(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, weights, biases, mppNumClasses);
     if (weights) (*env)->ReleaseFloatArrayElements(env, jWeights, weights, JNI_ABORT);
     if (biases) (*env)->ReleaseFloatArrayElements(env, jBiases, biases, JNI_ABORT);
     return (jlong)(intptr_t)backend;

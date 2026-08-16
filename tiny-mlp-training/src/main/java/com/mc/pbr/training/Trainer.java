@@ -7,21 +7,6 @@ import java.util.Arrays;
 import java.util.Random;
 
 public class Trainer {
-    private static final String ANSI_RESET = "\u001B[0m";
-    private static final String ANSI_RED = "\u001B[31m";
-    private static final String ANSI_GREEN = "\u001B[32m";
-    private static final String ANSI_YELLOW = "\u001B[33m";
-    private static final String ANSI_BLUE = "\u001B[34m";
-    private static final String ANSI_MAGENTA = "\u001B[35m";
-    private static final String ANSI_CYAN = "\u001B[36m";
-    private static final String ANSI_BOLD = "\u001B[1m";
-    private static final float MOMENTUM = 0.9f;
-    private static final float BETA1 = 0.9f;
-    private static final float BETA2 = 0.999f;
-    private static final float EPS = 1e-8f;
-    private static final float WEIGHT_DECAY = 0.1f;
-    private static final float GRAD_CLIP = 1.0f;
-
     private final String dataPath;
     private final String labelPath;
     private final int batchSize;
@@ -38,6 +23,12 @@ public class Trainer {
     private final String backendType;
     private final int featureDim;
     private final int labelDim;
+    private final float momentum;
+    private final float beta1;
+    private final float beta2;
+    private final float epsilon;
+    private final float weightDecay;
+    private final float gradClipNorm;
 
     private float[] trainData;
     private float[] trainLabels;
@@ -49,7 +40,9 @@ public class Trainer {
     public Trainer(String dataPath, String labelPath, int batchSize, int maxEpochs,
                    int earlyStopPatience, float initLr, float lrDecay, int lrStepEpochs,
                    long seed, int totalSamples, int trainSize, int valSize, int[] layerSizes,
-                   String backendType, int featureDim, int labelDim) {
+                   String backendType, int featureDim, int labelDim,
+                   float momentum, float beta1, float beta2, float epsilon,
+                   float weightDecay, float gradClipNorm) {
         this.dataPath = dataPath;
         this.labelPath = labelPath;
         this.batchSize = batchSize;
@@ -66,6 +59,12 @@ public class Trainer {
         this.backendType = backendType;
         this.featureDim = featureDim;
         this.labelDim = labelDim;
+        this.momentum = momentum;
+        this.beta1 = beta1;
+        this.beta2 = beta2;
+        this.epsilon = epsilon;
+        this.weightDecay = weightDecay;
+        this.gradClipNorm = gradClipNorm;
     }
 
     public void prepareData() throws IOException {
@@ -88,12 +87,12 @@ public class Trainer {
         valData = new float[valSize * featureDim];
         valLabels = new float[valSize * labelDim];
 
-        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Extracting training and validation subsets...");
+        System.out.println("[INFO] Extracting training and validation subsets...");
         BinaryChunkReader.extractSamples(dataPath, labelPath, sortedTrainIdx,
                 trainData, trainLabels, featureDim, labelDim);
         BinaryChunkReader.extractSamples(dataPath, labelPath, sortedValIdx,
                 valData, valLabels, featureDim, labelDim);
-        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Data extraction completed.");
+        System.out.println("[INFO] Data extraction completed.");
     }
 
     private void fisherYatesShuffle(int[] array, Random rng) {
@@ -107,7 +106,7 @@ public class Trainer {
 
     public void train(String heightModelPath) throws IOException {
         ComputingBackend backend = BackendFactory.create(backendType, layerSizes, rng.nextLong());
-        System.out.println(ANSI_BLUE + "[INFO] " + ANSI_RESET + "Backend: " + backendType.toUpperCase());
+        System.out.println("[INFO] Backend: " + backendType.toUpperCase());
 
         StringBuilder arch = new StringBuilder();
         arch.append("Input(").append(layerSizes[0]).append(")");
@@ -118,8 +117,8 @@ public class Trainer {
                 arch.append(" -> Dense(").append(layerSizes[i]).append(", ReLU)");
             }
         }
-        System.out.println(ANSI_BLUE + "[INFO] " + ANSI_RESET + "Architecture: " + arch.toString());
-        System.out.println(ANSI_BLUE + "[INFO] " + ANSI_RESET + "Starting training...");
+        System.out.println("[INFO] Architecture: " + arch.toString());
+        System.out.println("[INFO] Starting training...");
 
         trainModel(backend, heightModelPath);
         backend.close();
@@ -148,14 +147,6 @@ public class Trainer {
         long totalStart = System.currentTimeMillis();
         int totalBatches = (int) Math.ceil((double) trainSize / batchSize);
 
-        float[] mWeights = null, vWeights = null, mBiases = null, vBiases = null;
-        int totalWeights = calcTotalWeights();
-        int totalBiases = calcTotalBiases();
-        mWeights = new float[totalWeights];
-        vWeights = new float[totalWeights];
-        mBiases = new float[totalBiases];
-        vBiases = new float[totalBiases];
-
         for (int epoch = 1; epoch <= maxEpochs; epoch++) {
             long epochStart = System.currentTimeMillis();
             fisherYatesShuffle(localTrainIdx, rng);
@@ -181,10 +172,7 @@ public class Trainer {
                 }
                 backend.backwardBatch(batchInput, batchLabel, gradOutput, actualBatchSize);
 
-                float[] flatGradWeights = backend.getWeights();
-                float[] weights = backend.getWeights();
-                float[] biases = backend.getBiases();
-                backend.update(null, null, actualBatchSize, lr, MOMENTUM);
+                backend.update(null, null, actualBatchSize, lr, momentum);
 
                 batchCount++;
                 int progress = (int) (((double) batchCount / totalBatches) * 100);
@@ -194,31 +182,22 @@ public class Trainer {
                 for (int i = 0; i < barLength; i++) {
                     bar.append(i < filled ? "█" : "_");
                 }
-                System.out.print("\r" + ANSI_YELLOW + "[EPOCH " + String.format("%02d", epoch) +
-                        "/" + String.format("%02d", maxEpochs) + "] " + ANSI_RESET +
-                        "[" + ANSI_GREEN + bar.toString() + ANSI_RESET + "] " +
+                System.out.print("\r[EPOCH " + String.format("%02d", epoch) +
+                        "/" + String.format("%02d", maxEpochs) + "] " +
+                        "[" + bar.toString() + "] " +
                         progress + "% | Batch: " + batchCount + "/" + totalBatches);
             }
             System.out.println();
 
             float trainLoss = computeLoss(backend, trainData, trainLabels, localTrainIdx,
-                    labelOffset, heightLabelDim, ANSI_YELLOW, "[TRAIN LOSS]");
+                    labelOffset, heightLabelDim);
             float valLoss = computeLoss(backend, valData, valLabels, localValIdx,
-                    labelOffset, heightLabelDim, ANSI_MAGENTA, "[VALIDATE]");
+                    labelOffset, heightLabelDim);
 
             long epochTime = System.currentTimeMillis() - epochStart;
 
-            String valLossStr = String.format("%.6f", valLoss);
-            if (valLoss < bestValLoss) {
-                valLossStr = ANSI_GREEN + ANSI_BOLD + valLossStr + " (Best)" + ANSI_RESET;
-            }
-
-            System.out.printf(ANSI_BLUE + "[EPOCH %02d/%02d] " + ANSI_RESET +
-                            ANSI_YELLOW + "Train MSE: %.6f " + ANSI_RESET + "| " +
-                            ANSI_GREEN + "Val MSE: %s " + ANSI_RESET + "| " +
-                            ANSI_CYAN + "Time: %d ms " + ANSI_RESET + "| " +
-                            ANSI_MAGENTA + "LR: %.6f%n" + ANSI_RESET,
-                    epoch, maxEpochs, trainLoss, valLossStr, epochTime, lr);
+            System.out.printf("[EPOCH %02d/%02d] Train MSE: %.6f | Val MSE: %.6f | Time: %d ms | LR: %.6f%n",
+                    epoch, maxEpochs, trainLoss, valLoss, epochTime, lr);
 
             if (valLoss < bestValLoss) {
                 bestValLoss = valLoss;
@@ -228,8 +207,7 @@ public class Trainer {
             } else {
                 patienceCounter++;
                 if (patienceCounter >= earlyStopPatience) {
-                    System.out.println(ANSI_YELLOW + ANSI_BOLD + "[STOP] " + ANSI_RESET +
-                            "Early stopping at epoch " + epoch);
+                    System.out.println("[STOP] Early stopping at epoch " + epoch);
                     break;
                 }
             }
@@ -240,45 +218,23 @@ public class Trainer {
         if (bestWeights != null) {
             backend.setWeights(bestWeights);
             backend.setBiases(bestBiases);
-            System.out.println(ANSI_CYAN + "[RESTORE] " + ANSI_RESET +
-                    "Best model restored with Val MSE: " + ANSI_GREEN + bestValLoss + ANSI_RESET);
+            System.out.println("[RESTORE] Best model restored with Val MSE: " + bestValLoss);
         }
 
         long totalTime = System.currentTimeMillis() - totalStart;
-        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Training completed in " + totalTime + " ms");
+        System.out.println("[INFO] Training completed in " + totalTime + " ms");
         saveModel(backend, savePath);
-    }
-
-    private int calcTotalWeights() {
-        int total = 0;
-        for (int l = 0; l < layerSizes.length - 1; l++) {
-            total += layerSizes[l] * layerSizes[l + 1];
-        }
-        return total;
-    }
-
-    private int calcTotalBiases() {
-        int total = 0;
-        for (int l = 1; l < layerSizes.length; l++) {
-            total += layerSizes[l];
-        }
-        return total;
     }
 
     private float computeLoss(ComputingBackend backend,
                               float[] data, float[] labels, int[] indices,
-                              int labelOffset, int heightLabelDim,
-                              String colorCode, String prefix) {
+                              int labelOffset, int heightLabelDim) {
         int n = indices.length;
         int valBatchSize = Math.min(1024, n);
         float[] batchInput = new float[valBatchSize * featureDim];
         float[] batchOutput = new float[valBatchSize * heightLabelDim];
         float sumSq = 0.0f;
         int processed = 0;
-
-        int barLength = 50;
-        int updateInterval = Math.max(1, n / 100);
-        int nextUpdate = updateInterval;
 
         for (int start = 0; start < n; start += valBatchSize) {
             int end = Math.min(start + valBatchSize, n);
@@ -297,25 +253,6 @@ public class Trainer {
                 sumSq += diff * diff;
             }
             processed += actualBatch;
-            while (processed >= nextUpdate && nextUpdate <= n) {
-                int progress = (int) (((double) processed / n) * 100);
-                int filled = (int) ((progress / 100.0) * barLength);
-                StringBuilder bar = new StringBuilder();
-                for (int i = 0; i < barLength; i++) {
-                    bar.append(i < filled ? "█" : "_");
-                }
-                System.out.print("\r" + colorCode + prefix + " " + ANSI_RESET +
-                        "[" + colorCode + bar.toString() + ANSI_RESET + "] " +
-                        progress + "% | Samples: " + processed + "/" + n);
-                nextUpdate += updateInterval;
-                if (processed == n) {
-                    System.out.println();
-                    break;
-                }
-            }
-            if (processed == n) {
-                break;
-            }
         }
         return sumSq / n;
     }
@@ -325,8 +262,8 @@ public class Trainer {
         float[] biases = backend.getBiases();
         try (java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(
                 new java.io.FileOutputStream(path))) {
-            oos.writeObject(new com.mc.pbr.training.ModelData(backend.getLayerSizes(), weights, biases));
+            oos.writeObject(new ModelData(backend.getLayerSizes(), weights, biases));
         }
-        System.out.println(ANSI_GREEN + "[SAVE] " + ANSI_RESET + "Model saved to " + path);
+        System.out.println("[SAVE] Model saved to " + path);
     }
 }

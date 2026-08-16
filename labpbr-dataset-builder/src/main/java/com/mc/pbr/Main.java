@@ -17,16 +17,6 @@ public class Main {
 
     public static void main(String[] args) {
         PBRConfig config = ConfigLoader.load(args);
-
-        System.out.println(ANSI_MAGENTA + ANSI_BOLD);
-        System.out.println("███╗   ███╗ ██████╗██████╗  ██████╗ ");
-        System.out.println("████╗ ████║██╔════╝██╔══██╗██╔════╝ ");
-        System.out.println("██╔████╔██║██║     ██████╔╝██║  ███╗");
-        System.out.println("██║╚██╔╝██║██║     ██╔═══╝ ██║   ██║");
-        System.out.println("██║ ╚═╝ ██║╚██████╗██║     ╚██████╔╝");
-        System.out.println("╚═╝     ╚═╝ ╚═════╝╚═╝      ╚═════╝ ");
-        System.out.println(ANSI_RESET);
-
         PBRConfig.DatasetBuilderConfig db = config.getDatasetBuilder();
         PBRConfig.GlobalConfig gb = config.getGlobal();
 
@@ -37,6 +27,15 @@ public class Main {
         }
         new File(db.getOutputDir()).mkdirs();
 
+        System.out.println(ANSI_MAGENTA + ANSI_BOLD);
+        System.out.println("███╗   ███╗ ██████╗██████╗  ██████╗ ");
+        System.out.println("████╗ ████║██╔════╝██╔══██╗██╔════╝ ");
+        System.out.println("██╔████╔██║██║     ██████╔╝██║  ███╗");
+        System.out.println("██║╚██╔╝██║██║     ██╔═══╝ ██║   ██║");
+        System.out.println("██║ ╚═╝ ██║╚██████╗██║     ╚██████╔╝");
+        System.out.println("╚═╝     ╚═╝ ╚═════╝╚═╝      ╚═════╝ ");
+        System.out.println(ANSI_RESET);
+
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pipeline execution started.");
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + ANSI_BOLD + "Configuration:" + ANSI_RESET);
         System.out.printf("  %-12s: %s\n", "Input", root.getAbsolutePath());
@@ -44,6 +43,7 @@ public class Main {
         System.out.printf("  %-12s: %d\n", "MaxSamples", db.getMaxSamples());
         System.out.printf("  %-12s: %d\n", "Seed", gb.getSeed());
         System.out.printf("  %-12s: %d\n", "PatchRadius", gb.getPatchSize());
+        System.out.printf("  %-12s: %d\n", "TargetSize", db.getTargetTextureSize());
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Strategy: All texture groups contribute evenly, stream-write as we go");
 
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Step 1/4: Validating and cleaning data...");
@@ -97,7 +97,7 @@ public class Main {
         }
 
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Step 2+3/4: Extracting per texture, random sampling and writing to disk...");
-        LabPBRDataExtractor extractor = new LabPBRDataExtractor(patchRadius);
+        LabPBRDataExtractor extractor = new LabPBRDataExtractor(patchRadius, db.getTargetTextureSize());
         DataAugmenter augmenter = new DataAugmenter(patchRadius);
         Random rng = new Random(gb.getSeed());
         int totalWritten = 0;

@@ -7,10 +7,12 @@ public class ViTGraph implements ModelGraph {
     private final int featureDim;
     private final int labelDim;
     private final int[] layerSizes;
+    private final int mppNumClasses;
     private boolean closed = false;
 
-    public ViTGraph(int embedDim, int numLayers, int numHeads, int mlpDim, int seqLen, int inChannels, long seed) {
-        this.nativeHandle = CLNative.createViT(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, seed);
+    public ViTGraph(int embedDim, int numLayers, int numHeads, int mlpDim, int seqLen, int inChannels, long seed, int mppNumClasses) {
+        this.mppNumClasses = mppNumClasses;
+        this.nativeHandle = CLNative.createViT(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, seed, mppNumClasses);
         if (this.nativeHandle == 0) {
             throw new RuntimeException("Failed to initialize ViT graph");
         }
@@ -19,7 +21,8 @@ public class ViTGraph implements ModelGraph {
         this.layerSizes = new int[]{featureDim, embedDim, numLayers, numHeads, mlpDim};
     }
 
-    public ViTGraph(int embedDim, int numLayers, int numHeads, int mlpDim, int seqLen, int inChannels, float[] weights, float[] biases) {
+    public ViTGraph(int embedDim, int numLayers, int numHeads, int mlpDim, int seqLen, int inChannels, float[] weights, float[] biases, int mppNumClasses) {
+        this.mppNumClasses = mppNumClasses;
         int totalWeights = 0;
         int totalBiases = 0;
         totalWeights += inChannels * embedDim;
@@ -49,7 +52,7 @@ public class ViTGraph implements ModelGraph {
         if (biases != null && biases.length != totalBiases) {
             throw new RuntimeException("Invalid biases length: expected " + totalBiases + ", got " + biases.length);
         }
-        this.nativeHandle = CLNative.createViTWithWeights(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, weights, biases);
+        this.nativeHandle = CLNative.createViTWithWeights(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, weights, biases, mppNumClasses);
         if (this.nativeHandle == 0) {
             throw new RuntimeException("Failed to initialize ViT graph with weights");
         }

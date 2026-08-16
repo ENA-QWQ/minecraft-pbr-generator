@@ -11,11 +11,6 @@ import java.io.File;
 import java.io.IOException;
 
 public class PBRInferenceEngine {
-    private static final String ANSI_RESET = "\u001B[0m";
-    private static final String ANSI_GREEN = "\u001B[32m";
-    private static final String ANSI_YELLOW = "\u001B[33m";
-    private static final String ANSI_CYAN = "\u001B[36m";
-
     private final ComputingBackend backend;
     private final float strength;
     private final boolean pixelate;
@@ -31,6 +26,7 @@ public class PBRInferenceEngine {
     private final int featureDim;
     private final int labelDim;
     private final int patchRadius;
+    private final int inferenceBatchSize;
     private final HeightToNormalConverter normalConverter = new HeightToNormalConverter();
     private final NearestNeighborScaler scaler = new NearestNeighborScaler();
 
@@ -39,7 +35,7 @@ public class PBRInferenceEngine {
                               boolean invertHeight, boolean invertNormalY,
                               float heightStrength, float heightMin, float heightMax,
                               int heightSmoothRadius, float normPercentile,
-                              String backendType, int patchRadius) {
+                              String backendType, int patchRadius, int inferenceBatchSize) {
         this.backend = BackendFactory.createFromWeights(
                 backendType,
                 modelLoader.getLayerSizes(),
@@ -60,6 +56,7 @@ public class PBRInferenceEngine {
         this.heightSmoothRadius = heightSmoothRadius;
         this.normPercentile = normPercentile;
         this.patchRadius = patchRadius;
+        this.inferenceBatchSize = inferenceBatchSize;
     }
 
     public void process(String inputPath, String outputDir) throws Exception {
@@ -107,10 +104,10 @@ public class PBRInferenceEngine {
         int[] normalPixels = new int[totalPixels];
         int[] matPixels = new int[totalPixels];
 
-        System.out.print(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pass 1: Feature extraction & MLP inference... ");
+        System.out.print("[INFO] Pass 1: Feature extraction & MLP inference... ");
         long pass1Start = System.currentTimeMillis();
 
-        int batchSize = Math.min(1024, totalPixels);
+        int batchSize = Math.min(inferenceBatchSize, totalPixels);
         float[] allFeatures = new float[totalPixels * featureDim];
         int idx = 0;
         int updateInterval = Math.max(1, totalPixels / 50);
@@ -144,8 +141,7 @@ public class PBRInferenceEngine {
                         if (i < filled) bar.append("█");
                         else bar.append("_");
                     }
-                    System.out.print("\r" + ANSI_CYAN + "[INFO] " + ANSI_RESET +
-                            "[ " + ANSI_GREEN + bar.toString() + ANSI_RESET + " ] " +
+                    System.out.print("\r[INFO] [ " + bar.toString() + " ] " +
                             progress + "% | Pixel: " + processed + "/" + totalPixels);
                 }
             }
@@ -168,9 +164,9 @@ public class PBRInferenceEngine {
             matPixels[i] = 0xFF000000 | (outS << 16) | (outM << 8);
         }
 
-        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pass 1 completed in " + (System.currentTimeMillis() - pass1Start) + " ms");
+        System.out.println("[INFO] Pass 1 completed in " + (System.currentTimeMillis() - pass1Start) + " ms");
 
-        System.out.print(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Pass 2: Normalization & Post-processing... ");
+        System.out.print("[INFO] Pass 2: Normalization & Post-processing... ");
         applyPercentileNormalization(heightMap, totalPixels);
 
         if (invertHeight) {
@@ -198,12 +194,12 @@ public class PBRInferenceEngine {
         }
         System.out.println("Done.");
 
-        System.out.print(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Converting height map to normal map... ");
+        System.out.print("[INFO] Converting height map to normal map... ");
         normalConverter.convert(heightMap, w, h, strength, invertNormalY, normalPixels);
         System.out.println("Done.");
 
         if (scale > 1 && pixelate) {
-            System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Applying hard-edge pixelation...");
+            System.out.println("[INFO] Applying hard-edge pixelation...");
             float[] smallHeight = new float[origW * origH];
             float[] tempHeight = new float[totalPixels];
             scaler.scale(heightMap, w, h, origW, origH, smallHeight);
@@ -225,7 +221,7 @@ public class PBRInferenceEngine {
 
         saveImage(normalPixels, w, h, new File(outDirFile, "texture_n.png"));
         saveImage(matPixels, w, h, new File(outDirFile, "texture_s.png"));
-        System.out.println(ANSI_GREEN + "[SAVE] " + ANSI_RESET + "Results saved to: " + outDirFile.getAbsolutePath());
+        System.out.println("[SAVE] Results saved to: " + outDirFile.getAbsolutePath());
 
         backend.close();
     }

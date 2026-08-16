@@ -66,6 +66,10 @@ typedef struct {
     cl_mem d_layer_inputs;
     cl_mem d_ln1_outputs;
     cl_mem d_ln2_inputs;
+    cl_mem d_attn_temp;
+    cl_mem d_scores_temp;
+    cl_mem d_ffn_temp;
+    cl_mem d_normed_temp;
     float* host_weights;
     float* host_biases;
     float* host_mWeights;
@@ -80,12 +84,16 @@ typedef struct {
     int in_channels;
     int total_weights;
     int total_biases;
-    int max_batch;
+    int max_allocated_batch;
+    int mpp_num_classes;
+    int max_batch_size;
+    size_t workgroup_size;
+    float init_std;
     int initialized;
 } VitBackend;
 
-VitBackend* vit_backend_create(int embed_dim, int num_layers, int num_heads, int mlp_dim, int seq_len, int in_channels, long seed);
-VitBackend* vit_backend_create_with_weights(int embed_dim, int num_layers, int num_heads, int mlp_dim, int seq_len, int in_channels, const float* weights, const float* biases);
+VitBackend* vit_backend_create(int embed_dim, int num_layers, int num_heads, int mlp_dim, int seq_len, int in_channels, long seed, int mppNumClasses);
+VitBackend* vit_backend_create_with_weights(int embed_dim, int num_layers, int num_heads, int mlp_dim, int seq_len, int in_channels, const float* weights, const float* biases, int mppNumClasses);
 void vit_backend_destroy(VitBackend* backend);
 void vit_backend_forward(VitBackend* backend, const float* input, float* output, int batch_size);
 void vit_backend_backward(VitBackend* backend, const float* input, const float* label, const float* grad_output, int batch_size);

@@ -115,6 +115,7 @@ __kernel void vit_attention(
     __global const float* biases,
     __global float* output,
     __global float* attn_weights_out,
+    __global float* attn_temp,
     int batch_size,
     int total_tokens,
     int embed_dim,
@@ -158,7 +159,7 @@ __kernel void vit_attention(
             attn_weights_out[aw_idx] *= inv_sum;
         }
     }
-    float attn_out[768];
+    __global float* attn_out = attn_temp + idx * embed_dim;
     for (int i = 0; i < embed_dim; i++) attn_out[i] = 0.0f;
     for (int h = 0; h < num_heads; h++) {
         for (int d = 0; d < head_dim; d++) {
@@ -441,21 +442,15 @@ __kernel void vit_mpp_backward(
     __global const float* emb = token_embeds + (b * total_tokens + token_idx) * embed_dim;
     __global float* g_emb = grad_token_embeds + (b * total_tokens + token_idx) * embed_dim;
     int target = targets[idx];
-    float d_logits[512];
     for (int c = 0; c < num_classes; c++) {
-        d_logits[c] = logit[c] * loss_scale;
-    }
-    d_logits[target] -= loss_scale;
-    for (int d = 0; d < embed_dim; d++) {
-        float sum = 0.0f;
-        for (int c = 0; c < num_classes; c++) {
-            sum += d_logits[c] * mask_weights[d * num_classes + c];
-            atomic_add_float(&grad_mask_weights[d * num_classes + c], d_logits[c] * emb[d]);
+        float d = logit[c] * loss_scale;
+        if (c == target) d -= loss_scale;
+        if (d == 0.0f) continue;
+        for (int d_i = 0; d_i < embed_dim; d_i++) {
+            atomic_add_float(&grad_mask_weights[d_i * num_classes + c], d * emb[d_i]);
+            atomic_add_float(&g_emb[d_i], d * mask_weights[d_i * num_classes + c]);
         }
-        atomic_add_float(&g_emb[d], sum);
-    }
-    for (int c = 0; c < num_classes; c++) {
-        atomic_add_float(&grad_mask_biases[c], d_logits[c]);
+        atomic_add_float(&grad_mask_biases[c], d);
     }
 }
 
@@ -581,6 +576,8 @@ __kernel void vit_attention_bwd(
     __global const float* attn_weights,
     __global const float* qkv,
     __global float* grad_qkv,
+    __global float* attn_temp,
+    __global float* scores_temp,
     int batch_size,
     int total_tokens,
     int embed_dim,
@@ -595,7 +592,7 @@ __kernel void vit_attention_bwd(
     int t = idx % total_tokens;
     int head_dim = embed_dim / num_heads;
     __global const float* go = grad_out + idx * embed_dim;
-    float d_attn_out[768];
+    __global float* d_attn_out = attn_temp + idx * embed_dim;
     for (int d = 0; d < embed_dim; d++) {
         float sum = 0.0f;
         for (int j = 0; j < embed_dim; j++) {
@@ -611,8 +608,8 @@ __kernel void vit_attention_bwd(
         atomic_add_float(&grad_biases[proj_b_off + d], go[d]);
     }
     __global float* gqkv_self = grad_qkv + idx * 3 * embed_dim;
+    __global float* d_scores = scores_temp + idx * total_tokens;
     for (int h = 0; h < num_heads; h++) {
-        float d_scores[512];
         float dot_sum = 0.0f;
         for (int t2 = 0; t2 < total_tokens; t2++) {
             float w = attn_weights[((b * num_heads + h) * total_tokens + t) * total_tokens + t2];
@@ -656,6 +653,7 @@ __kernel void vit_ffn_bwd(
     __global const float* input,
     __global const float* pre_gelu,
     __global const float* hidden,
+    __global float* ffn_temp,
     int batch_size,
     int total_tokens,
     int embed_dim,
@@ -673,7 +671,7 @@ __kernel void vit_ffn_bwd(
     __global const float* in = input + idx * embed_dim;
     __global const float* pre = pre_gelu + idx * mlp_dim;
     __global const float* hid = hidden + idx * mlp_dim;
-    float d_hidden[768];
+    __global float* d_hidden = ffn_temp + idx * mlp_dim;
     for (int j = 0; j < mlp_dim; j++) {
         float sum = 0.0f;
         for (int d = 0; d < embed_dim; d++) {
@@ -721,6 +719,7 @@ __kernel void vit_head_bwd(
     __global const float* cls_raw,
     __global const float* cls_mean,
     __global const float* cls_inv_std,
+    __global float* normed_temp,
     int batch_size,
     int total_tokens,
     int embed_dim,
@@ -737,7 +736,7 @@ __kernel void vit_head_bwd(
     for (int d = 0; d < embed_dim; d++) {
         atomic_add_float(&grad_weights[head_weight_off + d], g * normed[d]);
     }
-    float d_normed[768];
+    __global float* d_normed = normed_temp + b * embed_dim;
     for (int d = 0; d < embed_dim; d++) {
         d_normed[d] = g * weights[head_weight_off + d];
     }
