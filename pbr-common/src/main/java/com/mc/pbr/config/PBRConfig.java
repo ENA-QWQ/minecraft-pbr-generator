@@ -22,7 +22,28 @@ public class PBRConfig {
         private int patchSize = 5;
         private String backend = "cpu";
         private GPUConfig gpu = new GPUConfig();
+        private String modelType = "mlp";
+        private int seqLen = 16;
+        private int embedDim = 128;
+        private int numLayers = 4;
+        private int numHeads = 8;
+        private int mlpDim = 256;
+        private int inChannels = 4;
 
+        public String getModelType() { return modelType; }
+        public void setModelType(String modelType) { this.modelType = modelType; }
+        public int getSeqLen() { return seqLen; }
+        public void setSeqLen(int seqLen) { this.seqLen = seqLen; }
+        public int getEmbedDim() { return embedDim; }
+        public void setEmbedDim(int embedDim) { this.embedDim = embedDim; }
+        public int getNumLayers() { return numLayers; }
+        public void setNumLayers(int numLayers) { this.numLayers = numLayers; }
+        public int getNumHeads() { return numHeads; }
+        public void setNumHeads(int numHeads) { this.numHeads = numHeads; }
+        public int getMlpDim() { return mlpDim; }
+        public void setMlpDim(int mlpDim) { this.mlpDim = mlpDim; }
+        public int getInChannels() { return inChannels; }
+        public void setInChannels(int inChannels) { this.inChannels = inChannels; }
         public long getSeed() { return seed; }
         public void setSeed(long seed) { this.seed = seed; }
         public int getFeatureDim() { return featureDim; }
@@ -35,6 +56,22 @@ public class PBRConfig {
         public void setBackend(String backend) { this.backend = backend; }
         public GPUConfig getGpu() { return gpu; }
         public void setGpu(GPUConfig gpu) { this.gpu = gpu; }
+        private String datasetType = "mlp";
+        private int vitTrainBatchSize = 8;
+        private float vitLearningRate = 0.001f;
+        private float vitWeightDecay = 0.1f;
+        private float vitGradClip = 1.0f;
+
+        public String getDatasetType() { return datasetType; }
+        public void setDatasetType(String datasetType) { this.datasetType = datasetType; }
+        public int getVitTrainBatchSize() { return vitTrainBatchSize; }
+        public void setVitTrainBatchSize(int vitTrainBatchSize) { this.vitTrainBatchSize = vitTrainBatchSize; }
+        public float getVitLearningRate() { return vitLearningRate; }
+        public void setVitLearningRate(float vitLearningRate) { this.vitLearningRate = vitLearningRate; }
+        public float getVitWeightDecay() { return vitWeightDecay; }
+        public void setVitWeightDecay(float vitWeightDecay) { this.vitWeightDecay = vitWeightDecay; }
+        public float getVitGradClip() { return vitGradClip; }
+        public void setVitGradClip(float vitGradClip) { this.vitGradClip = vitGradClip; }
     }
 
     public static class GPUConfig {

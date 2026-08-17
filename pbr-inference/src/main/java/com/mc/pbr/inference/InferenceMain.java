@@ -45,6 +45,13 @@ public class InferenceMain {
             ModelLoader modelLoader = new ModelLoader(inf.getModelPath());
 
             System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Starting inference pipeline...");
+            String modelType = global.getModelType() != null ? global.getModelType() : "mlp";
+            int seqLen = global.getSeqLen() != 0 ? global.getSeqLen() : 16;
+            int embedDim = global.getEmbedDim() != 0 ? global.getEmbedDim() : 128;
+            int numLayers = global.getNumLayers() != 0 ? global.getNumLayers() : 4;
+            int numHeads = global.getNumHeads() != 0 ? global.getNumHeads() : 8;
+            int mlpDim = global.getMlpDim() != 0 ? global.getMlpDim() : 256;
+            int inChannels = global.getInChannels() != 0 ? global.getInChannels() : 4;
             PBRInferenceEngine engine = new PBRInferenceEngine(
                     modelLoader,
                     inf.getNormalStrength(),
@@ -60,7 +67,14 @@ public class InferenceMain {
                     inf.getHeight().getNormPercentile(),
                     backendType,
                     global.getPatchSize(),
-                    inf.getInferenceBatchSize()
+                    inf.getInferenceBatchSize(),
+                    modelType,
+                    seqLen,
+                    embedDim,
+                    numLayers,
+                    numHeads,
+                    mlpDim,
+                    inChannels
             );
 
             String inputPath = extractInput(args);

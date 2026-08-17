@@ -194,7 +194,7 @@ static int reallocate_buffers(VitBackend* backend, int batch_size) {
         batch_size * seq_len * backend->in_channels * sizeof(float), NULL, &err);
     if (err != CL_SUCCESS) return 0;
     backend->d_output = clCreateBuffer(backend->context, CL_MEM_READ_WRITE,
-        batch_size * sizeof(float), NULL, &err);
+        batch_size * total_tokens * sizeof(float), NULL, &err);
     if (err != CL_SUCCESS) return 0;
     backend->d_weights = clCreateBuffer(backend->context, CL_MEM_READ_WRITE,
         backend->total_weights * sizeof(float), NULL, &err);
@@ -618,22 +618,17 @@ void vit_backend_forward(VitBackend* backend, const float* input, float* output,
     clSetKernelArg(backend->kernel_head, 1, sizeof(cl_mem), &backend->d_weights);
     clSetKernelArg(backend->kernel_head, 2, sizeof(cl_mem), &backend->d_biases);
     clSetKernelArg(backend->kernel_head, 3, sizeof(cl_mem), &backend->d_output);
-    clSetKernelArg(backend->kernel_head, 4, sizeof(cl_mem), &backend->d_cls_normed);
-    clSetKernelArg(backend->kernel_head, 5, sizeof(cl_mem), &backend->d_cls_mean);
-    clSetKernelArg(backend->kernel_head, 6, sizeof(cl_mem), &backend->d_cls_inv_std);
-    clSetKernelArg(backend->kernel_head, 7, sizeof(int), &batch_size);
-    clSetKernelArg(backend->kernel_head, 8, sizeof(int), &total_tokens);
-    clSetKernelArg(backend->kernel_head, 9, sizeof(int), &embed_dim);
-    clSetKernelArg(backend->kernel_head, 10, sizeof(int), &final_ln_gamma);
-    clSetKernelArg(backend->kernel_head, 11, sizeof(int), &final_ln_beta);
-    clSetKernelArg(backend->kernel_head, 12, sizeof(int), &head_weight);
-    clSetKernelArg(backend->kernel_head, 13, sizeof(int), &head_bias);
-    size_t global_head = batch_size;
+    clSetKernelArg(backend->kernel_head, 4, sizeof(int), &batch_size);
+    clSetKernelArg(backend->kernel_head, 5, sizeof(int), &total_tokens);
+    clSetKernelArg(backend->kernel_head, 6, sizeof(int), &embed_dim);
+    clSetKernelArg(backend->kernel_head, 7, sizeof(int), &head_weight);
+    clSetKernelArg(backend->kernel_head, 8, sizeof(int), &head_bias);
+    size_t global_head = batch_size * total_tokens;
     err = clEnqueueNDRangeKernel(backend->queue, backend->kernel_head, 1, NULL, &global_head, NULL, 0, NULL, NULL);
     if (err != CL_SUCCESS) return;
 
     err = clEnqueueReadBuffer(backend->queue, backend->d_output, CL_TRUE, 0,
-        batch_size * sizeof(float), output, 0, NULL, NULL);
+        batch_size * total_tokens * sizeof(float), output, 0, NULL, NULL);
     if (err != CL_SUCCESS) return;
 }
 

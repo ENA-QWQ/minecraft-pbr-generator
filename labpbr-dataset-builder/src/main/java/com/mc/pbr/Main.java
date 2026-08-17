@@ -44,7 +44,10 @@ public class Main {
         System.out.printf("  %-12s: %d\n", "Seed", gb.getSeed());
         System.out.printf("  %-12s: %d\n", "PatchRadius", gb.getPatchSize());
         System.out.printf("  %-12s: %d\n", "TargetSize", db.getTargetTextureSize());
-        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Strategy: All texture groups contribute evenly, stream-write as we go");
+        System.out.printf("  %-12s: %s\n", "ModelType", gb.getModelType());
+        if ("vit".equalsIgnoreCase(gb.getModelType())) {
+            System.out.printf("  %-12s: %d\n", "SeqLen", gb.getSeqLen());
+        }
 
         System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Step 1/4: Validating and cleaning data...");
         LabPBRValidator validator = new LabPBRValidator();
@@ -82,12 +85,23 @@ public class Main {
                 baseQuota, remainder);
 
         DatasetSerializer serializer = new DatasetSerializer();
+        int actualFeatureDim, actualLabelDim;
+        if ("vit".equalsIgnoreCase(gb.getModelType())) {
+            int seqLen = gb.getSeqLen();
+            int patchSize = db.getTargetTextureSize() / (int) Math.sqrt(seqLen);
+            actualFeatureDim = seqLen * patchSize * patchSize * 4;
+            actualLabelDim = seqLen;
+        } else {
+            actualFeatureDim = FEATURE_DIM;
+            actualLabelDim = LABEL_DIM;
+        }
+
         try {
             serializer.open(
                     new File(db.getOutputDir(), "train_data.bin"),
                     new File(db.getOutputDir(), "train_labels.bin"),
-                    FEATURE_DIM,
-                    LABEL_DIM
+                    actualFeatureDim,
+                    actualLabelDim
             );
         } catch (IOException e) {
             System.err.println(ANSI_RED + ANSI_BOLD + "[ERROR] " + ANSI_RESET + "Failed to create output files");
@@ -96,8 +110,9 @@ public class Main {
             return;
         }
 
-        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Step 2+3/4: Extracting per texture, random sampling and writing to disk...");
-        LabPBRDataExtractor extractor = new LabPBRDataExtractor(patchRadius, db.getTargetTextureSize());
+        System.out.println(ANSI_CYAN + "[INFO] " + ANSI_RESET + "Step 2+3/4: Extracting textures and writing to disk...");
+        int seqLen = gb.getSeqLen();
+        LabPBRDataExtractor extractor = new LabPBRDataExtractor(patchRadius, db.getTargetTextureSize(), seqLen, gb.getModelType());
         DataAugmenter augmenter = new DataAugmenter(patchRadius);
         Random rng = new Random(gb.getSeed());
         int totalWritten = 0;
@@ -107,29 +122,33 @@ public class Main {
         try {
             for (int packIdx = 0; packIdx < packCount; packIdx++) {
                 LabPBRValidator.TextureTriple triple = triples.get(packIdx);
-                LabPBRDataExtractor.ExtractionResult result = extractor.extract(triple);
-                if (result == null) {
+                List<LabPBRDataExtractor.Sample> samples = extractor.extract(triple);
+                if (samples == null || samples.isEmpty()) {
                     processedTextures++;
                     continue;
                 }
 
-                List<float[]> features = result.features;
-                List<float[]> labels = result.labels;
-                int pixelCount = features.size();
-
                 int quota = quotas[packIdx];
-                for (int s = 0; s < quota; s++) {
-                    int pixelIdx = rng.nextInt(pixelCount);
-                    int augType = rng.nextInt(8);
-
-                    float[] feat = features.get(pixelIdx);
-                    float[] label = labels.get(pixelIdx);
-
-                    float[] augFeat = augmenter.applyAugmentation(feat, augType);
-                    float[] augLabel = augmenter.applyLabelAugmentation(label, augType);
-
-                    serializer.writeSample(augFeat, augLabel);
-                    totalWritten++;
+                if ("vit".equalsIgnoreCase(gb.getModelType())) {
+                    for (int s = 0; s < quota && s < samples.size(); s++) {
+                        LabPBRDataExtractor.Sample sample = samples.get(s);
+                        int augType = rng.nextInt(8);
+                        float[] augFeat = augmenter.applyAugmentation(sample.features, augType);
+                        float[] augLabel = augmenter.applyLabelAugmentation(sample.labels, augType);
+                        serializer.writeSample(augFeat, augLabel);
+                        totalWritten++;
+                    }
+                } else {
+                    int pixelCount = samples.size();
+                    for (int s = 0; s < quota; s++) {
+                        int pixelIdx = rng.nextInt(pixelCount);
+                        LabPBRDataExtractor.Sample sample = samples.get(pixelIdx);
+                        int augType = rng.nextInt(8);
+                        float[] augFeat = augmenter.applyAugmentation(sample.features, augType);
+                        float[] augLabel = augmenter.applyLabelAugmentation(sample.labels, augType);
+                        serializer.writeSample(augFeat, augLabel);
+                        totalWritten++;
+                    }
                 }
 
                 processedTextures++;

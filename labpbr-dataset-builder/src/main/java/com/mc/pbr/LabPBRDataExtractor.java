@@ -11,13 +11,17 @@ import java.util.List;
 public class LabPBRDataExtractor {
     private final int patchRadius;
     private final int targetSize;
+    private final int seqLen;
+    private final String modelType;
 
-    public LabPBRDataExtractor(int patchRadius, int targetSize) {
+    public LabPBRDataExtractor(int patchRadius, int targetSize, int seqLen, String modelType) {
         this.patchRadius = patchRadius;
         this.targetSize = targetSize;
+        this.seqLen = seqLen;
+        this.modelType = modelType;
     }
 
-    public ExtractionResult extract(LabPBRValidator.TextureTriple triple) {
+    public List<Sample> extract(LabPBRValidator.TextureTriple triple) {
         try {
             BufferedImage baseImg = resizeToTarget(ImageIO.read(triple.base));
             BufferedImage normalImg = resizeToTarget(ImageIO.read(triple.normal));
@@ -38,19 +42,52 @@ public class LabPBRDataExtractor {
             float[][] normalNorm = pixelArrayToNormalized(normalPixels);
             float[][] specNorm = pixelArrayToNormalized(specPixels);
 
-            List<float[]> features = new ArrayList<>();
-            List<float[]> labels = new ArrayList<>();
+            List<Sample> samples = new ArrayList<>();
 
-            for (int y = 0; y < h; y++) {
-                for (int x = 0; x < w; x++) {
-                    float[] feat = extractPatch(baseNorm, x, y, w, h);
-                    float[] label = extractLabel(normalNorm, specNorm, x, y, w, h);
-                    features.add(feat);
-                    labels.add(label);
+            if ("vit".equalsIgnoreCase(modelType)) {
+                int patchSize = (int) Math.sqrt((double) (w * h) / seqLen);
+                if (patchSize * patchSize * seqLen != w * h) {
+                    while (patchSize * patchSize * seqLen > w * h) patchSize--;
+                }
+                int channels = 4;
+                float[] feat = new float[seqLen * patchSize * patchSize * channels];
+                float[] label = new float[seqLen];
+                int patchIdx = 0;
+                for (int py = 0; py < h && patchIdx < seqLen; py += patchSize) {
+                    for (int px = 0; px < w && patchIdx < seqLen; px += patchSize) {
+                        int idx = 0;
+                        float sumHeight = 0.0f;
+                        int count = 0;
+                        for (int y = py; y < py + patchSize && y < h; y++) {
+                            for (int x = px; x < px + patchSize && x < w; x++) {
+                                int pi = y * w + x;
+                                feat[patchIdx * patchSize * patchSize * channels + idx++] = baseNorm[0][pi];
+                                feat[patchIdx * patchSize * patchSize * channels + idx++] = baseNorm[1][pi];
+                                feat[patchIdx * patchSize * patchSize * channels + idx++] = baseNorm[2][pi];
+                                feat[patchIdx * patchSize * patchSize * channels + idx++] = baseNorm[3][pi];
+                                float height = normalNorm[3][pi] * 2.0f - 1.0f;
+                                sumHeight += height;
+                                count++;
+                            }
+                        }
+                        label[patchIdx] = sumHeight / count;
+                        patchIdx++;
+                    }
+                }
+                samples.add(new Sample(feat, label));
+            } else {
+                int patchSize = 2 * patchRadius + 1;
+                int channels = 4;
+                for (int y = 0; y < h; y++) {
+                    for (int x = 0; x < w; x++) {
+                        float[] feat = extractPatch(baseNorm, x, y, w, h);
+                        float[] label = extractLabel(normalNorm, specNorm, x, y);
+                        samples.add(new Sample(feat, label));
+                    }
                 }
             }
 
-            return new ExtractionResult(features, labels);
+            return samples;
         } catch (IOException e) {
             System.out.println("[ERROR] Failed to extract texture triple: " + triple.base);
             return null;
@@ -92,38 +129,31 @@ public class LabPBRDataExtractor {
         int patchSize = 2 * patchRadius + 1;
         float[] feat = new float[patchSize * patchSize * 4];
         int idx = 0;
-        float[] r = baseNorm[0];
-        float[] g = baseNorm[1];
-        float[] b = baseNorm[2];
         for (int dy = -patchRadius; dy <= patchRadius; dy++) {
             for (int dx = -patchRadius; dx <= patchRadius; dx++) {
                 int nx = (cx + dx + w) % w;
                 int ny = (cy + dy + h) % h;
                 int pi = ny * w + nx;
-                feat[idx++] = r[pi];
-                feat[idx++] = g[pi];
-                feat[idx++] = b[pi];
-                feat[idx++] = 0.299f * r[pi] + 0.587f * g[pi] + 0.114f * b[pi];
+                feat[idx++] = baseNorm[0][pi];
+                feat[idx++] = baseNorm[1][pi];
+                feat[idx++] = baseNorm[2][pi];
+                feat[idx++] = baseNorm[3][pi];
             }
         }
         return feat;
     }
 
-    private float[] extractLabel(float[][] normalNorm, float[][] specNorm, int x, int y, int w, int h) {
-        int idx = y * w + x;
-        float nx = normalNorm[0][idx] * 2.0f - 1.0f;
-        float ny = normalNorm[1][idx] * 2.0f - 1.0f;
+    private float[] extractLabel(float[][] normalNorm, float[][] specNorm, int x, int y) {
+        int idx = y * targetSize + x;
         float height = normalNorm[3][idx] * 2.0f - 1.0f;
-        float smoothness = specNorm[0][idx];
-        float metallic = specNorm[1][idx];
-        return new float[]{nx, ny, height, smoothness, metallic};
+        return new float[]{height};
     }
 
-    public static class ExtractionResult {
-        public final List<float[]> features;
-        public final List<float[]> labels;
+    public static class Sample {
+        public final float[] features;
+        public final float[] labels;
 
-        public ExtractionResult(List<float[]> features, List<float[]> labels) {
+        public Sample(float[] features, float[] labels) {
             this.features = features;
             this.labels = labels;
         }

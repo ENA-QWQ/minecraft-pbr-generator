@@ -2,6 +2,7 @@ package com.mc.pbr.training;
 
 import com.mc.pbr.computing.ComputingBackend;
 import com.mc.pbr.computing.BackendFactory;
+import com.mc.pbr.computing.graph.ViTGraph;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Random;
@@ -29,20 +30,27 @@ public class Trainer {
     private final float epsilon;
     private final float weightDecay;
     private final float gradClipNorm;
+    private final String modelType;
+    private final int seqLen;
+    private final int embedDim;
+    private final int numLayers;
+    private final int numHeads;
+    private final int mlpDim;
+    private final int inChannels;
+    private final int mppNumClasses;
 
     private float[] trainData;
     private float[] trainLabels;
-    private int[] trainIndices;
     private float[] valData;
     private float[] valLabels;
-    private int[] valIndices;
 
     public Trainer(String dataPath, String labelPath, int batchSize, int maxEpochs,
                    int earlyStopPatience, float initLr, float lrDecay, int lrStepEpochs,
                    long seed, int totalSamples, int trainSize, int valSize, int[] layerSizes,
                    String backendType, int featureDim, int labelDim,
                    float momentum, float beta1, float beta2, float epsilon,
-                   float weightDecay, float gradClipNorm) {
+                   float weightDecay, float gradClipNorm,
+                   String modelType, int seqLen, int embedDim, int numLayers, int numHeads, int mlpDim, int inChannels, int mppNumClasses) {
         this.dataPath = dataPath;
         this.labelPath = labelPath;
         this.batchSize = batchSize;
@@ -65,22 +73,28 @@ public class Trainer {
         this.epsilon = epsilon;
         this.weightDecay = weightDecay;
         this.gradClipNorm = gradClipNorm;
+        this.modelType = modelType;
+        this.seqLen = seqLen;
+        this.embedDim = embedDim;
+        this.numLayers = numLayers;
+        this.numHeads = numHeads;
+        this.mlpDim = mlpDim;
+        this.inChannels = inChannels;
+        this.mppNumClasses = mppNumClasses;
     }
 
     public void prepareData() throws IOException {
         int[] allIndices = new int[totalSamples];
         for (int i = 0; i < totalSamples; i++) allIndices[i] = i;
-        fisherYatesShuffle(allIndices, rng);
+        fisherYatesShuffle(allIndices);
 
-        trainIndices = new int[trainSize];
+        int[] trainIndices = new int[trainSize];
+        int[] valIndices = new int[valSize];
         System.arraycopy(allIndices, 0, trainIndices, 0, trainSize);
-        valIndices = new int[valSize];
         System.arraycopy(allIndices, trainSize, valIndices, 0, valSize);
 
-        int[] sortedTrainIdx = trainIndices.clone();
-        Arrays.sort(sortedTrainIdx);
-        int[] sortedValIdx = valIndices.clone();
-        Arrays.sort(sortedValIdx);
+        Arrays.sort(trainIndices);
+        Arrays.sort(valIndices);
 
         trainData = new float[trainSize * featureDim];
         trainLabels = new float[trainSize * labelDim];
@@ -88,14 +102,12 @@ public class Trainer {
         valLabels = new float[valSize * labelDim];
 
         System.out.println("[INFO] Extracting training and validation subsets...");
-        BinaryChunkReader.extractSamples(dataPath, labelPath, sortedTrainIdx,
-                trainData, trainLabels, featureDim, labelDim);
-        BinaryChunkReader.extractSamples(dataPath, labelPath, sortedValIdx,
-                valData, valLabels, featureDim, labelDim);
+        BinaryChunkReader.extractSamples(dataPath, labelPath, trainIndices, trainData, trainLabels, featureDim, labelDim);
+        BinaryChunkReader.extractSamples(dataPath, labelPath, valIndices, valData, valLabels, featureDim, labelDim);
         System.out.println("[INFO] Data extraction completed.");
     }
 
-    private void fisherYatesShuffle(int[] array, Random rng) {
+    private void fisherYatesShuffle(int[] array) {
         for (int i = array.length - 1; i > 0; i--) {
             int j = rng.nextInt(i + 1);
             int tmp = array[i];
@@ -105,26 +117,17 @@ public class Trainer {
     }
 
     public void train(String heightModelPath) throws IOException {
-        ComputingBackend backend = BackendFactory.create(backendType, layerSizes, rng.nextLong());
-        System.out.println("[INFO] Backend: " + backendType.toUpperCase());
-
-        StringBuilder arch = new StringBuilder();
-        arch.append("Input(").append(layerSizes[0]).append(")");
-        for (int i = 1; i < layerSizes.length; i++) {
-            if (i == layerSizes.length - 1) {
-                arch.append(" -> Dense(").append(layerSizes[i]).append(", Linear)");
-            } else {
-                arch.append(" -> Dense(").append(layerSizes[i]).append(", ReLU)");
-            }
+        if ("vit".equalsIgnoreCase(modelType)) {
+            trainVit(heightModelPath);
+        } else {
+            trainMlp(heightModelPath);
         }
-        System.out.println("[INFO] Architecture: " + arch.toString());
-        System.out.println("[INFO] Starting training...");
-
-        trainModel(backend, heightModelPath);
-        backend.close();
     }
 
-    private void trainModel(ComputingBackend backend, String savePath) throws IOException {
+    private void trainMlp(String savePath) throws IOException {
+        ComputingBackend backend = BackendFactory.create(backendType, layerSizes, rng.nextLong());
+        System.out.println("[INFO] Backend: " + backendType.toUpperCase());
+        System.out.println("[INFO] Architecture: MLP " + Arrays.toString(layerSizes));
         int heightLabelDim = 1;
         int labelOffset = 2;
 
@@ -149,7 +152,7 @@ public class Trainer {
 
         for (int epoch = 1; epoch <= maxEpochs; epoch++) {
             long epochStart = System.currentTimeMillis();
-            fisherYatesShuffle(localTrainIdx, rng);
+            fisherYatesShuffle(localTrainIdx);
 
             int batchCount = 0;
             for (int batchStart = 0; batchStart < trainSize; batchStart += batchSize) {
@@ -159,8 +162,7 @@ public class Trainer {
                 for (int i = batchStart; i < batchEnd; i++) {
                     int idx = localTrainIdx[i];
                     int localIdx = i - batchStart;
-                    System.arraycopy(trainData, idx * featureDim,
-                            batchInput, localIdx * featureDim, featureDim);
+                    System.arraycopy(trainData, idx * featureDim, batchInput, localIdx * featureDim, featureDim);
                     int labelBase = idx * labelDim + labelOffset;
                     batchLabel[localIdx * heightLabelDim] = trainLabels[labelBase];
                 }
@@ -171,31 +173,17 @@ public class Trainer {
                     gradOutput[i] = batchOutput[i] - batchLabel[i];
                 }
                 backend.backwardBatch(batchInput, batchLabel, gradOutput, actualBatchSize);
-
                 backend.update(null, null, actualBatchSize, lr, momentum);
 
                 batchCount++;
-                int progress = (int) (((double) batchCount / totalBatches) * 100);
-                int barLength = 50;
-                int filled = (int) ((progress / 100.0) * barLength);
-                StringBuilder bar = new StringBuilder();
-                for (int i = 0; i < barLength; i++) {
-                    bar.append(i < filled ? "█" : "_");
-                }
-                System.out.print("\r[EPOCH " + String.format("%02d", epoch) +
-                        "/" + String.format("%02d", maxEpochs) + "] " +
-                        "[" + bar.toString() + "] " +
-                        progress + "% | Batch: " + batchCount + "/" + totalBatches);
+                printProgress(epoch, batchCount, totalBatches);
             }
             System.out.println();
 
-            float trainLoss = computeLoss(backend, trainData, trainLabels, localTrainIdx,
-                    labelOffset, heightLabelDim);
-            float valLoss = computeLoss(backend, valData, valLabels, localValIdx,
-                    labelOffset, heightLabelDim);
+            float trainLoss = computeLossMlp(backend, trainData, trainLabels, localTrainIdx, labelOffset, heightLabelDim);
+            float valLoss = computeLossMlp(backend, valData, valLabels, localValIdx, labelOffset, heightLabelDim);
 
             long epochTime = System.currentTimeMillis() - epochStart;
-
             System.out.printf("[EPOCH %02d/%02d] Train MSE: %.6f | Val MSE: %.6f | Time: %d ms | LR: %.6f%n",
                     epoch, maxEpochs, trainLoss, valLoss, epochTime, lr);
 
@@ -224,25 +212,112 @@ public class Trainer {
         long totalTime = System.currentTimeMillis() - totalStart;
         System.out.println("[INFO] Training completed in " + totalTime + " ms");
         saveModel(backend, savePath);
+        backend.close();
     }
 
-    private float computeLoss(ComputingBackend backend,
-                              float[] data, float[] labels, int[] indices,
-                              int labelOffset, int heightLabelDim) {
+    private void trainVit(String savePath) throws IOException {
+        ViTGraph vit = new ViTGraph(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, rng.nextLong(), mppNumClasses);
+        System.out.println("[INFO] Architecture: ViT (embed=" + embedDim + ", layers=" + numLayers + ", heads=" + numHeads + ", mlp=" + mlpDim + ", seq=" + seqLen + ")");
+        int totalBatches = (int) Math.ceil((double) trainSize / batchSize);
+        float lr = initLr;
+
+        float[] bestWeights = null;
+        float[] bestBiases = null;
+        float bestValLoss = Float.MAX_VALUE;
+        int patienceCounter = 0;
+        int step = 0;
+
+        float[] batchInput = new float[batchSize * featureDim];
+        float[] batchLabel = new float[batchSize * labelDim];
+        float[] batchOutput = new float[batchSize * labelDim];
+        float[] gradOutput = new float[batchSize * labelDim];
+
+        long totalStart = System.currentTimeMillis();
+
+        int[] localTrainIdx = new int[trainSize];
+        for (int i = 0; i < trainSize; i++) localTrainIdx[i] = i;
+        int[] localValIdx = new int[valSize];
+        for (int i = 0; i < valSize; i++) localValIdx[i] = i;
+
+        for (int epoch = 1; epoch <= maxEpochs; epoch++) {
+            long epochStart = System.currentTimeMillis();
+            fisherYatesShuffle(localTrainIdx);
+
+            int batchCount = 0;
+            for (int batchStart = 0; batchStart < trainSize; batchStart += batchSize) {
+                int batchEnd = Math.min(batchStart + batchSize, trainSize);
+                int actualBatchSize = batchEnd - batchStart;
+
+                for (int i = batchStart; i < batchEnd; i++) {
+                    int idx = localTrainIdx[i];
+                    int localIdx = i - batchStart;
+                    System.arraycopy(trainData, idx * featureDim, batchInput, localIdx * featureDim, featureDim);
+                    System.arraycopy(trainLabels, idx * labelDim, batchLabel, localIdx * labelDim, labelDim);
+                }
+
+                vit.zeroGradients();
+                vit.forward(batchInput, batchOutput, actualBatchSize);
+                for (int i = 0; i < actualBatchSize * labelDim; i++) {
+                    gradOutput[i] = batchOutput[i] - batchLabel[i];
+                }
+                vit.backward(batchInput, batchLabel, gradOutput, actualBatchSize);
+                vit.clipGradients(gradClipNorm);
+                vit.adamwUpdate(actualBatchSize, lr, beta1, beta2, epsilon, weightDecay, step);
+                step++;
+
+                batchCount++;
+                printProgress(epoch, batchCount, totalBatches);
+            }
+            System.out.println();
+
+            float trainLoss = computeLossVit(vit, trainData, trainLabels, localTrainIdx);
+            float valLoss = computeLossVit(vit, valData, valLabels, localValIdx);
+
+            long epochTime = System.currentTimeMillis() - epochStart;
+            System.out.printf("[EPOCH %02d/%02d] Train MSE: %.6f | Val MSE: %.6f | Time: %d ms | LR: %.6f%n",
+                    epoch, maxEpochs, trainLoss, valLoss, epochTime, lr);
+
+            if (valLoss < bestValLoss) {
+                bestValLoss = valLoss;
+                patienceCounter = 0;
+                bestWeights = vit.getWeights();
+                bestBiases = vit.getBiases();
+            } else {
+                patienceCounter++;
+                if (patienceCounter >= earlyStopPatience) {
+                    System.out.println("[STOP] Early stopping at epoch " + epoch);
+                    break;
+                }
+            }
+
+            if (epoch % lrStepEpochs == 0) lr *= lrDecay;
+        }
+
+        if (bestWeights != null) {
+            vit.setWeights(bestWeights);
+            vit.setBiases(bestBiases);
+            System.out.println("[RESTORE] Best model restored with Val MSE: " + bestValLoss);
+        }
+
+        long totalTime = System.currentTimeMillis() - totalStart;
+        System.out.println("[INFO] Training completed in " + totalTime + " ms");
+        saveModelVit(vit, savePath);
+        vit.close();
+    }
+
+    private float computeLossMlp(ComputingBackend backend, float[] data, float[] labels, int[] indices,
+                                 int labelOffset, int heightLabelDim) {
         int n = indices.length;
         int valBatchSize = Math.min(1024, n);
         float[] batchInput = new float[valBatchSize * featureDim];
         float[] batchOutput = new float[valBatchSize * heightLabelDim];
         float sumSq = 0.0f;
-        int processed = 0;
-
         for (int start = 0; start < n; start += valBatchSize) {
             int end = Math.min(start + valBatchSize, n);
             int actualBatch = end - start;
             for (int i = start; i < end; i++) {
                 int idx = indices[i];
-                System.arraycopy(data, idx * featureDim,
-                        batchInput, (i - start) * featureDim, featureDim);
+                System.arraycopy(data, idx * featureDim, batchInput, (i - start) * featureDim, featureDim);
             }
             backend.forwardBatch(batchInput, batchOutput, actualBatch);
             for (int i = 0; i < actualBatch; i++) {
@@ -252,17 +327,63 @@ public class Trainer {
                 float diff = batchOutput[i * heightLabelDim] - target;
                 sumSq += diff * diff;
             }
-            processed += actualBatch;
         }
         return sumSq / n;
+    }
+
+    private float computeLossVit(ViTGraph vit, float[] data, float[] labels, int[] indices) {
+        int n = indices.length;
+        int valBatchSize = Math.min(1024, n);
+        float[] batchInput = new float[valBatchSize * featureDim];
+        float[] batchOutput = new float[valBatchSize * labelDim];
+        float sumSq = 0.0f;
+        for (int start = 0; start < n; start += valBatchSize) {
+            int end = Math.min(start + valBatchSize, n);
+            int actualBatch = end - start;
+            for (int i = start; i < end; i++) {
+                int idx = indices[i];
+                System.arraycopy(data, idx * featureDim, batchInput, (i - start) * featureDim, featureDim);
+            }
+            vit.forward(batchInput, batchOutput, actualBatch);
+            for (int i = 0; i < actualBatch; i++) {
+                int idx = indices[start + i];
+                int labelBase = idx * labelDim;
+                for (int p = 0; p < labelDim; p++) {
+                    float diff = batchOutput[i * labelDim + p] - labels[labelBase + p];
+                    sumSq += diff * diff;
+                }
+            }
+        }
+        return sumSq / (n * labelDim);
+    }
+
+    private void printProgress(int epoch, int batch, int total) {
+        int progress = (int) (((double) batch / total) * 100);
+        int barLength = 50;
+        int filled = (int) ((progress / 100.0) * barLength);
+        StringBuilder bar = new StringBuilder();
+        for (int i = 0; i < barLength; i++) {
+            bar.append(i < filled ? "█" : "_");
+        }
+        System.out.print("\r[EPOCH " + String.format("%02d", epoch) + "/" + String.format("%02d", maxEpochs) + "] " +
+                "[" + bar.toString() + "] " + progress + "% | Batch: " + batch + "/" + total);
     }
 
     private void saveModel(ComputingBackend backend, String path) throws IOException {
         float[] weights = backend.getWeights();
         float[] biases = backend.getBiases();
-        try (java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(
-                new java.io.FileOutputStream(path))) {
-            oos.writeObject(new ModelData(backend.getLayerSizes(), weights, biases));
+        try (java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(new java.io.FileOutputStream(path))) {
+            oos.writeObject(new ModelData("mlp", backend.getLayerSizes(), weights, biases, 0, 0, 0, 0, 0, 0, 0));
+        }
+        System.out.println("[SAVE] Model saved to " + path);
+    }
+
+    private void saveModelVit(ViTGraph vit, String path) throws IOException {
+        float[] weights = vit.getWeights();
+        float[] biases = vit.getBiases();
+        int[] layerSizes = new int[]{featureDim, embedDim, numLayers, numHeads, mlpDim};
+        try (java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(new java.io.FileOutputStream(path))) {
+            oos.writeObject(new ModelData("vit", layerSizes, weights, biases, seqLen, embedDim, numLayers, numHeads, mlpDim, inChannels, mppNumClasses));
         }
         System.out.println("[SAVE] Model saved to " + path);
     }

@@ -40,7 +40,6 @@ public class BinaryChunkReader {
                 outPos++;
                 sampleIdx++;
                 processed++;
-
                 if (processed % updateInterval == 0 || processed == total) {
                     int progress = (int) (((double) processed / total) * 100);
                     int filled = (int) ((progress / 100.0) * barLength);

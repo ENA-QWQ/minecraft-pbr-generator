@@ -2,6 +2,7 @@ package com.mc.pbr.inference;
 
 import com.mc.pbr.computing.ComputingBackend;
 import com.mc.pbr.computing.BackendFactory;
+import com.mc.pbr.computing.graph.ViTGraph;
 import javax.imageio.ImageIO;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -12,6 +13,8 @@ import java.io.IOException;
 
 public class PBRInferenceEngine {
     private final ComputingBackend backend;
+    private final ViTGraph vitGraph;
+    private final String modelType;
     private final float strength;
     private final boolean pixelate;
     private final float baseSmoothness;
@@ -27,6 +30,12 @@ public class PBRInferenceEngine {
     private final int labelDim;
     private final int patchRadius;
     private final int inferenceBatchSize;
+    private final int seqLen;
+    private final int embedDim;
+    private final int numLayers;
+    private final int numHeads;
+    private final int mlpDim;
+    private final int inChannels;
     private final HeightToNormalConverter normalConverter = new HeightToNormalConverter();
     private final NearestNeighborScaler scaler = new NearestNeighborScaler();
 
@@ -35,15 +44,17 @@ public class PBRInferenceEngine {
                               boolean invertHeight, boolean invertNormalY,
                               float heightStrength, float heightMin, float heightMax,
                               int heightSmoothRadius, float normPercentile,
-                              String backendType, int patchRadius, int inferenceBatchSize) {
-        this.backend = BackendFactory.createFromWeights(
-                backendType,
-                modelLoader.getLayerSizes(),
-                modelLoader.getWeights(),
-                modelLoader.getBiases()
-        );
-        this.featureDim = backend.getFeatureDim();
-        this.labelDim = backend.getLabelDim();
+                              String backendType, int patchRadius, int inferenceBatchSize,
+                              String modelType, int seqLen, int embedDim, int numLayers, int numHeads, int mlpDim, int inChannels) {
+        this.modelType = modelType;
+        this.seqLen = seqLen;
+        this.embedDim = embedDim;
+        this.numLayers = numLayers;
+        this.numHeads = numHeads;
+        this.mlpDim = mlpDim;
+        this.inChannels = inChannels;
+        this.patchRadius = patchRadius;
+        this.inferenceBatchSize = inferenceBatchSize;
         this.strength = strength;
         this.pixelate = pixelate;
         this.baseSmoothness = baseSmoothness;
@@ -55,8 +66,24 @@ public class PBRInferenceEngine {
         this.heightMax = heightMax;
         this.heightSmoothRadius = heightSmoothRadius;
         this.normPercentile = normPercentile;
-        this.patchRadius = patchRadius;
-        this.inferenceBatchSize = inferenceBatchSize;
+
+        if ("vit".equalsIgnoreCase(modelType)) {
+            this.vitGraph = new ViTGraph(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels,
+                    modelLoader.getWeights(), modelLoader.getBiases(), 512);
+            this.backend = null;
+            this.featureDim = seqLen * inChannels;
+            this.labelDim = seqLen;
+        } else {
+            this.backend = BackendFactory.createFromWeights(
+                    backendType,
+                    modelLoader.getLayerSizes(),
+                    modelLoader.getWeights(),
+                    modelLoader.getBiases()
+            );
+            this.vitGraph = null;
+            this.featureDim = backend.getFeatureDim();
+            this.labelDim = backend.getLabelDim();
+        }
     }
 
     public void process(String inputPath, String outputDir) throws Exception {
@@ -104,6 +131,25 @@ public class PBRInferenceEngine {
         int[] normalPixels = new int[totalPixels];
         int[] matPixels = new int[totalPixels];
 
+        if ("vit".equalsIgnoreCase(modelType)) {
+            processVit(workImg, pixels, w, h, totalPixels, heightMap, normalPixels, matPixels);
+        } else {
+            processMlp(workImg, pixels, w, h, totalPixels, heightMap, normalPixels, matPixels);
+        }
+
+        File outDirFile = new File(outputDir);
+        if (!outDirFile.exists()) outDirFile.mkdirs();
+
+        saveImage(normalPixels, w, h, new File(outDirFile, "texture_n.png"));
+        saveImage(matPixels, w, h, new File(outDirFile, "texture_s.png"));
+        System.out.println("[SAVE] Results saved to: " + outDirFile.getAbsolutePath());
+
+        if (backend != null) backend.close();
+        if (vitGraph != null) vitGraph.close();
+    }
+
+    private void processMlp(BufferedImage workImg, int[] pixels, int w, int h, int totalPixels,
+                            float[] heightMap, int[] normalPixels, int[] matPixels) throws Exception {
         System.out.print("[INFO] Pass 1: Feature extraction & MLP inference... ");
         long pass1Start = System.currentTimeMillis();
 
@@ -165,8 +211,70 @@ public class PBRInferenceEngine {
         }
 
         System.out.println("[INFO] Pass 1 completed in " + (System.currentTimeMillis() - pass1Start) + " ms");
+        postProcess(heightMap, normalPixels, matPixels, pixels, w, h, totalPixels);
+    }
 
-        System.out.print("[INFO] Pass 2: Normalization & Post-processing... ");
+    private void processVit(BufferedImage workImg, int[] pixels, int w, int h, int totalPixels,
+                            float[] heightMap, int[] normalPixels, int[] matPixels) throws Exception {
+        System.out.print("[INFO] ViT inference: extracting patches... ");
+        int patchSize = (int) Math.sqrt((double) (w * h) / seqLen);
+        int actualPatchSize = patchSize;
+        while (actualPatchSize * actualPatchSize * seqLen > w * h) actualPatchSize--;
+        int channels = 4;
+        float[] allFeatures = new float[seqLen * actualPatchSize * actualPatchSize * channels];
+        int idx = 0;
+        for (int py = 0; py < h; py += actualPatchSize) {
+            for (int px = 0; px < w; px += actualPatchSize) {
+                if (idx / (actualPatchSize * actualPatchSize * channels) >= seqLen) break;
+                for (int y = py; y < py + actualPatchSize && y < h; y++) {
+                    for (int x = px; x < px + actualPatchSize && x < w; x++) {
+                        int pixel = pixels[y * w + x];
+                        float r = ((pixel >> 16) & 0xFF) / 255.0f;
+                        float g = ((pixel >> 8) & 0xFF) / 255.0f;
+                        float b = (pixel & 0xFF) / 255.0f;
+                        float a = ((pixel >> 24) & 0xFF) / 255.0f;
+                        allFeatures[idx++] = r;
+                        allFeatures[idx++] = g;
+                        allFeatures[idx++] = b;
+                        allFeatures[idx++] = a;
+                    }
+                }
+            }
+        }
+        System.out.println("Done.");
+
+        float[] patchHeights = new float[seqLen];
+        vitGraph.forward(allFeatures, patchHeights, 1);
+
+        for (int py = 0; py < h; py += actualPatchSize) {
+            for (int px = 0; px < w; px += actualPatchSize) {
+                int patchIdx = (py / actualPatchSize) * (w / actualPatchSize) + (px / actualPatchSize);
+                if (patchIdx >= seqLen) break;
+                float hVal = patchHeights[patchIdx];
+                for (int y = py; y < py + actualPatchSize && y < h; y++) {
+                    for (int x = px; x < px + actualPatchSize && x < w; x++) {
+                        int i = y * w + x;
+                        heightMap[i] = hVal;
+                        int pixel = pixels[i];
+                        float gray = 0.299f * (((pixel >> 16) & 0xFF) / 255.0f) +
+                                0.587f * (((pixel >> 8) & 0xFF) / 255.0f) +
+                                0.114f * ((pixel & 0xFF) / 255.0f);
+                        float smoothness = baseSmoothness + gray * 0.3f;
+                        float metallic = (((pixel >> 0) & 0xFF) / 255.0f) > 0.5f ? baseMetallic : 0.0f;
+                        int outS = clamp(smoothness * 255.0f);
+                        int outM = clamp(metallic * 255.0f);
+                        matPixels[i] = 0xFF000000 | (outS << 16) | (outM << 8);
+                    }
+                }
+            }
+        }
+
+        postProcess(heightMap, normalPixels, matPixels, pixels, w, h, totalPixels);
+    }
+
+    private void postProcess(float[] heightMap, int[] normalPixels, int[] matPixels, int[] pixels,
+                             int w, int h, int totalPixels) {
+        System.out.print("[INFO] Post-processing height map... ");
         applyPercentileNormalization(heightMap, totalPixels);
 
         if (invertHeight) {
@@ -197,33 +305,6 @@ public class PBRInferenceEngine {
         System.out.print("[INFO] Converting height map to normal map... ");
         normalConverter.convert(heightMap, w, h, strength, invertNormalY, normalPixels);
         System.out.println("Done.");
-
-        if (scale > 1 && pixelate) {
-            System.out.println("[INFO] Applying hard-edge pixelation...");
-            float[] smallHeight = new float[origW * origH];
-            float[] tempHeight = new float[totalPixels];
-            scaler.scale(heightMap, w, h, origW, origH, smallHeight);
-            scaler.scale(smallHeight, origW, origH, w, h, tempHeight);
-            for (int i = 0; i < totalPixels; i++) {
-                int pixel = normalPixels[i];
-                int outA = clamp(tempHeight[i] * 191.0f + 64.0f);
-                normalPixels[i] = (pixel & 0x00FFFFFF) | (outA << 24);
-            }
-            int[] smallMat = new int[origW * origH];
-            int[] tempMat = new int[totalPixels];
-            scaler.scale(matPixels, w, h, origW, origH, smallMat);
-            scaler.scale(smallMat, origW, origH, w, h, tempMat);
-            System.arraycopy(tempMat, 0, matPixels, 0, totalPixels);
-        }
-
-        File outDirFile = new File(outputDir);
-        if (!outDirFile.exists()) outDirFile.mkdirs();
-
-        saveImage(normalPixels, w, h, new File(outDirFile, "texture_n.png"));
-        saveImage(matPixels, w, h, new File(outDirFile, "texture_s.png"));
-        System.out.println("[SAVE] Results saved to: " + outDirFile.getAbsolutePath());
-
-        backend.close();
     }
 
     private void applyPercentileNormalization(float[] arr, int n) {

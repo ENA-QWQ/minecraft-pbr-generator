@@ -7,22 +7,22 @@ public class ViTGraph implements ModelGraph {
     private final int featureDim;
     private final int labelDim;
     private final int[] layerSizes;
-    private final int mppNumClasses;
+    private final int seqLen;
     private boolean closed = false;
 
     public ViTGraph(int embedDim, int numLayers, int numHeads, int mlpDim, int seqLen, int inChannels, long seed, int mppNumClasses) {
-        this.mppNumClasses = mppNumClasses;
+        this.seqLen = seqLen;
         this.nativeHandle = CLNative.createViT(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, seed, mppNumClasses);
         if (this.nativeHandle == 0) {
             throw new RuntimeException("Failed to initialize ViT graph");
         }
         this.featureDim = seqLen * inChannels;
-        this.labelDim = 1;
+        this.labelDim = seqLen;
         this.layerSizes = new int[]{featureDim, embedDim, numLayers, numHeads, mlpDim};
     }
 
     public ViTGraph(int embedDim, int numLayers, int numHeads, int mlpDim, int seqLen, int inChannels, float[] weights, float[] biases, int mppNumClasses) {
-        this.mppNumClasses = mppNumClasses;
+        this.seqLen = seqLen;
         int totalWeights = 0;
         int totalBiases = 0;
         totalWeights += inChannels * embedDim;
@@ -57,7 +57,7 @@ public class ViTGraph implements ModelGraph {
             throw new RuntimeException("Failed to initialize ViT graph with weights");
         }
         this.featureDim = seqLen * inChannels;
-        this.labelDim = 1;
+        this.labelDim = seqLen;
         this.layerSizes = new int[]{featureDim, embedDim, numLayers, numHeads, mlpDim};
     }
 
@@ -73,13 +73,30 @@ public class ViTGraph implements ModelGraph {
     @Override
     public void forward(float[] input, float[] output, int batchSize) {
         checkClosed();
-        CLNative.forwardViT(nativeHandle, input, output, batchSize);
+        int totalTokens = seqLen + 1;
+        float[] fullOutput = new float[batchSize * totalTokens];
+        CLNative.forwardViT(nativeHandle, input, fullOutput, batchSize);
+        int copyCount = Math.min(seqLen, output.length / batchSize);
+        for (int b = 0; b < batchSize; b++) {
+            System.arraycopy(fullOutput, b * totalTokens + 1, output, b * copyCount, copyCount);
+        }
     }
 
     @Override
     public void backward(float[] input, float[] label, float[] gradOutput, int batchSize) {
         checkClosed();
-        CLNative.backwardViT(nativeHandle, input, label, gradOutput, batchSize);
+        int totalTokens = seqLen + 1;
+        int gradCopyCount = Math.min(seqLen, gradOutput.length / batchSize);
+        float[] fullGrad = new float[batchSize * totalTokens];
+        for (int b = 0; b < batchSize; b++) {
+            System.arraycopy(gradOutput, b * gradCopyCount, fullGrad, b * totalTokens + 1, gradCopyCount);
+        }
+        int labelCopyCount = Math.min(seqLen, label.length / batchSize);
+        float[] fullLabel = new float[batchSize * totalTokens];
+        for (int b = 0; b < batchSize; b++) {
+            System.arraycopy(label, b * labelCopyCount, fullLabel, b * totalTokens + 1, labelCopyCount);
+        }
+        CLNative.backwardViT(nativeHandle, input, fullLabel, fullGrad, batchSize);
     }
 
     @Override

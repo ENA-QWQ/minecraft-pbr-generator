@@ -230,41 +230,21 @@ __kernel void vit_head(
     __global const float* weights,
     __global const float* biases,
     __global float* output,
-    __global float* cls_normed_out,
-    __global float* cls_mean_out,
-    __global float* cls_inv_std_out,
     int batch_size,
     int total_tokens,
     int embed_dim,
-    int ln_gamma_off,
-    int ln_beta_off,
     int head_weight_off,
     int head_bias_off
 ) {
-    int b = get_global_id(0);
-    if (b >= batch_size) return;
-    __global const float* cls = input + b * total_tokens * embed_dim;
-    float mean = 0.0f;
-    for (int d = 0; d < embed_dim; d++) mean += cls[d];
-    mean /= (float)embed_dim;
-    float var = 0.0f;
-    for (int d = 0; d < embed_dim; d++) {
-        float diff = cls[d] - mean;
-        var += diff * diff;
-    }
-    var /= (float)embed_dim;
-    float inv_std = 1.0f / sqrt(var + 1e-5f);
-    cls_mean_out[b] = mean;
-    cls_inv_std_out[b] = inv_std;
-    __global float* normed = cls_normed_out + b * embed_dim;
-    for (int d = 0; d < embed_dim; d++) {
-        normed[d] = (cls[d] - mean) * inv_std * weights[ln_gamma_off + d] + biases[ln_beta_off + d];
-    }
+    int idx = get_global_id(0);
+    int total = batch_size * total_tokens;
+    if (idx >= total) return;
+    __global const float* token = input + idx * embed_dim;
     float sum = 0.0f;
     for (int d = 0; d < embed_dim; d++) {
-        sum += normed[d] * weights[head_weight_off + d];
+        sum += token[d] * weights[head_weight_off + d];
     }
-    output[b] = sum + biases[head_bias_off];
+    output[idx] = sum + biases[head_bias_off];
 }
 
 __kernel void vit_add(

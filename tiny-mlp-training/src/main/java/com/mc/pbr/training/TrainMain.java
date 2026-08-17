@@ -88,7 +88,15 @@ public class TrainMain {
                     hp.getBeta2(),
                     hp.getEpsilon(),
                     hp.getWeightDecay(),
-                    hp.getGradientClipNorm()
+                    hp.getGradientClipNorm(),
+                    global.getModelType(),
+                    global.getSeqLen(),
+                    global.getEmbedDim(),
+                    global.getNumLayers(),
+                    global.getNumHeads(),
+                    global.getMlpDim(),
+                    global.getInChannels(),
+                    global.getGpu().getMppNumClasses()
             );
             trainer.prepareData();
             trainer.train(train.getModelOutput());
