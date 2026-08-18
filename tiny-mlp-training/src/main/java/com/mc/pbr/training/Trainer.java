@@ -8,6 +8,13 @@ import java.util.Arrays;
 import java.util.Random;
 
 public class Trainer {
+    private static final String ANSI_RESET = "\u001B[0m";
+    private static final String ANSI_GREEN = "\u001B[32m";
+    private static final String ANSI_YELLOW = "\u001B[33m";
+    private static final String ANSI_MAGENTA = "\u001B[35m";
+    private static final String ANSI_BLUE = "\u001B[34m";
+    private static final String ANSI_CYAN = "\u001B[36m";
+
     private final String dataPath;
     private final String labelPath;
     private final int batchSize;
@@ -176,16 +183,15 @@ public class Trainer {
                 backend.update(null, null, actualBatchSize, lr, momentum);
 
                 batchCount++;
-                printProgress(epoch, batchCount, totalBatches);
+                printTrainingProgress(epoch, batchCount, totalBatches, epochStart);
             }
             System.out.println();
 
-            float trainLoss = computeLossMlp(backend, trainData, trainLabels, localTrainIdx, labelOffset, heightLabelDim);
-            float valLoss = computeLossMlp(backend, valData, valLabels, localValIdx, labelOffset, heightLabelDim);
+            float trainLoss = computeLossMlp(backend, trainData, trainLabels, localTrainIdx, labelOffset, heightLabelDim, true);
+            float valLoss = computeLossMlp(backend, valData, valLabels, localValIdx, labelOffset, heightLabelDim, false);
 
             long epochTime = System.currentTimeMillis() - epochStart;
-            System.out.printf("[EPOCH %02d/%02d] Train MSE: %.6f | Val MSE: %.6f | Time: %d ms | LR: %.6f%n",
-                    epoch, maxEpochs, trainLoss, valLoss, epochTime, lr);
+            printEpochSummary(epoch, trainLoss, valLoss, epochTime, lr);
 
             if (valLoss < bestValLoss) {
                 bestValLoss = valLoss;
@@ -266,16 +272,15 @@ public class Trainer {
                 step++;
 
                 batchCount++;
-                printProgress(epoch, batchCount, totalBatches);
+                printTrainingProgress(epoch, batchCount, totalBatches, epochStart);
             }
             System.out.println();
 
-            float trainLoss = computeLossVit(vit, trainData, trainLabels, localTrainIdx);
-            float valLoss = computeLossVit(vit, valData, valLabels, localValIdx);
+            float trainLoss = computeLossVit(vit, trainData, trainLabels, localTrainIdx, true);
+            float valLoss = computeLossVit(vit, valData, valLabels, localValIdx, false);
 
             long epochTime = System.currentTimeMillis() - epochStart;
-            System.out.printf("[EPOCH %02d/%02d] Train MSE: %.6f | Val MSE: %.6f | Time: %d ms | LR: %.6f%n",
-                    epoch, maxEpochs, trainLoss, valLoss, epochTime, lr);
+            printEpochSummary(epoch, trainLoss, valLoss, epochTime, lr);
 
             if (valLoss < bestValLoss) {
                 bestValLoss = valLoss;
@@ -306,12 +311,21 @@ public class Trainer {
     }
 
     private float computeLossMlp(ComputingBackend backend, float[] data, float[] labels, int[] indices,
-                                 int labelOffset, int heightLabelDim) {
+                                 int labelOffset, int heightLabelDim, boolean isTrain) {
         int n = indices.length;
         int valBatchSize = Math.min(1024, n);
         float[] batchInput = new float[valBatchSize * featureDim];
         float[] batchOutput = new float[valBatchSize * heightLabelDim];
         float sumSq = 0.0f;
+        int processed = 0;
+        int barLength = 50;
+        int updateInterval = Math.max(1, n / 100);
+        String color = isTrain ? ANSI_YELLOW : ANSI_MAGENTA;
+        String prefix = isTrain ? "TRAIN LOSS" : "VALIDATE";
+        long startTime = System.currentTimeMillis();
+
+        printLossProgress(prefix, color, 0, 0, n, 0, startTime);
+
         for (int start = 0; start < n; start += valBatchSize) {
             int end = Math.min(start + valBatchSize, n);
             int actualBatch = end - start;
@@ -327,16 +341,32 @@ public class Trainer {
                 float diff = batchOutput[i * heightLabelDim] - target;
                 sumSq += diff * diff;
             }
+            processed += actualBatch;
+            if (processed % updateInterval == 0 || processed >= n) {
+                int progress = (int) (((double) processed / n) * 100);
+                long elapsed = System.currentTimeMillis() - startTime;
+                printLossProgress(prefix, color, progress, processed, n, elapsed, startTime);
+                if (processed >= n) System.out.println();
+            }
         }
         return sumSq / n;
     }
 
-    private float computeLossVit(ViTGraph vit, float[] data, float[] labels, int[] indices) {
+    private float computeLossVit(ViTGraph vit, float[] data, float[] labels, int[] indices, boolean isTrain) {
         int n = indices.length;
         int valBatchSize = Math.min(1024, n);
         float[] batchInput = new float[valBatchSize * featureDim];
         float[] batchOutput = new float[valBatchSize * labelDim];
         float sumSq = 0.0f;
+        int processed = 0;
+        int barLength = 50;
+        int updateInterval = Math.max(1, n / 100);
+        String color = isTrain ? ANSI_YELLOW : ANSI_MAGENTA;
+        String prefix = isTrain ? "TRAIN LOSS" : "VALIDATE";
+        long startTime = System.currentTimeMillis();
+
+        printLossProgress(prefix, color, 0, 0, n, 0, startTime);
+
         for (int start = 0; start < n; start += valBatchSize) {
             int end = Math.min(start + valBatchSize, n);
             int actualBatch = end - start;
@@ -353,11 +383,33 @@ public class Trainer {
                     sumSq += diff * diff;
                 }
             }
+            processed += actualBatch;
+            if (processed % updateInterval == 0 || processed >= n) {
+                int progress = (int) (((double) processed / n) * 100);
+                long elapsed = System.currentTimeMillis() - startTime;
+                printLossProgress(prefix, color, progress, processed, n, elapsed, startTime);
+                if (processed >= n) System.out.println();
+            }
         }
         return sumSq / (n * labelDim);
     }
 
-    private void printProgress(int epoch, int batch, int total) {
+    private void printLossProgress(String prefix, String color, int progress, int processed, int total, long elapsed, long startTime) {
+        int barLength = 50;
+        int filled = (int) ((progress / 100.0) * barLength);
+        StringBuilder bar = new StringBuilder();
+        for (int i = 0; i < barLength; i++) {
+            bar.append(i < filled ? "█" : "_");
+        }
+        String timeStr = formatDuration(elapsed);
+        System.out.print("\r" + ANSI_YELLOW + "[" + prefix + "] " + ANSI_RESET +
+                "[" + color + bar.toString() + ANSI_RESET + "] " +
+                progress + "% | Samples: " + processed + "/" + total +
+                " | " + ANSI_CYAN + "Elapsed: " + timeStr + ANSI_RESET);
+        System.out.flush();
+    }
+
+    private void printTrainingProgress(int epoch, int batch, int total, long epochStart) {
         int progress = (int) (((double) batch / total) * 100);
         int barLength = 50;
         int filled = (int) ((progress / 100.0) * barLength);
@@ -365,8 +417,43 @@ public class Trainer {
         for (int i = 0; i < barLength; i++) {
             bar.append(i < filled ? "█" : "_");
         }
-        System.out.print("\r[EPOCH " + String.format("%02d", epoch) + "/" + String.format("%02d", maxEpochs) + "] " +
-                "[" + bar.toString() + "] " + progress + "% | Batch: " + batch + "/" + total);
+        long elapsed = System.currentTimeMillis() - epochStart;
+        long eta = 0;
+        if (progress > 0) {
+            eta = (elapsed * (100 - progress)) / progress;
+        }
+        String elapsedStr = formatDuration(elapsed);
+        String etaStr = (progress == 100) ? "0s" : formatDuration(eta);
+        System.out.print("\r" + ANSI_YELLOW + "[EPOCH " + String.format("%02d", epoch) + "/" + String.format("%02d", maxEpochs) + "] " + ANSI_RESET +
+                "[" + ANSI_GREEN + bar.toString() + ANSI_RESET + "] " +
+                progress + "% | Batch: " + batch + "/" + total +
+                " | " + ANSI_CYAN + "Elapsed: " + elapsedStr + " | ETA: " + etaStr + ANSI_RESET);
+        System.out.flush();
+    }
+
+    private void printEpochSummary(int epoch, float trainLoss, float valLoss, long epochTime, float lr) {
+        String valStr = String.format("%.6f", valLoss);
+        System.out.printf(ANSI_BLUE + "[EPOCH %02d/%02d] " + ANSI_RESET +
+                        ANSI_YELLOW + "Train MSE: %.6f " + ANSI_RESET + "| " +
+                        ANSI_GREEN + "Val MSE: %s " + ANSI_RESET + "| " +
+                        ANSI_CYAN + "Time: %d ms " + ANSI_RESET + "| " +
+                        ANSI_MAGENTA + "LR: %.6f%n" + ANSI_RESET,
+                epoch, maxEpochs, trainLoss, valStr, epochTime, lr);
+    }
+
+    private String formatDuration(long millis) {
+        long seconds = millis / 1000;
+        long minutes = seconds / 60;
+        long hours = minutes / 60;
+        seconds %= 60;
+        minutes %= 60;
+        if (hours > 0) {
+            return String.format("%dh%02dm%02ds", hours, minutes, seconds);
+        } else if (minutes > 0) {
+            return String.format("%dm%02ds", minutes, seconds);
+        } else {
+            return String.format("%ds", seconds);
+        }
     }
 
     private void saveModel(ComputingBackend backend, String path) throws IOException {
