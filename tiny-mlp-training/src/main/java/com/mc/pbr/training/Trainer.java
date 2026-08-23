@@ -407,7 +407,7 @@ public class Trainer {
         int barLength = 50;
         int updateInterval = Math.max(1, n / 100);
         String color = isTrain ? ANSI_YELLOW : ANSI_MAGENTA;
-        String prefix = isTrain ? "TRAIN LOSS" : "VALIDATE";
+        String prefix = isTrain ? "TRAIN LOSS" : "VAL LOSS";
         long startTime = System.currentTimeMillis();
 
         printLossProgress(prefix, color, 0, 0, n, 0, startTime);
@@ -457,7 +457,7 @@ public class Trainer {
         int barLength = 50;
         int updateInterval = Math.max(1, n / 100);
         String color = isTrain ? ANSI_YELLOW : ANSI_MAGENTA;
-        String prefix = isTrain ? "TRAIN LOSS" : "VALIDATE";
+        String prefix = isTrain ? "TRAIN LOSS" : "VAL LOSS";
         long startTime = System.currentTimeMillis();
 
         printLossProgress(prefix, color, 0, 0, n, 0, startTime);
