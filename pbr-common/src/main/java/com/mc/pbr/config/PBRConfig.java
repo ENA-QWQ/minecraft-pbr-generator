@@ -29,6 +29,13 @@ public class PBRConfig {
         private int numHeads = 8;
         private int mlpDim = 256;
         private int inChannels = 4;
+        private String datasetType = "mlp";
+        private int vitTrainBatchSize = 8;
+        private float vitLearningRate = 0.001f;
+        private float vitWeightDecay = 0.1f;
+        private float vitGradClip = 1.0f;
+        private float variancePenaltyTargetStd = 0.1f;
+        private float variancePenaltyLambda = 0.001f;
 
         public String getModelType() { return modelType; }
         public void setModelType(String modelType) { this.modelType = modelType; }
@@ -56,12 +63,6 @@ public class PBRConfig {
         public void setBackend(String backend) { this.backend = backend; }
         public GPUConfig getGpu() { return gpu; }
         public void setGpu(GPUConfig gpu) { this.gpu = gpu; }
-        private String datasetType = "mlp";
-        private int vitTrainBatchSize = 8;
-        private float vitLearningRate = 0.001f;
-        private float vitWeightDecay = 0.1f;
-        private float vitGradClip = 1.0f;
-
         public String getDatasetType() { return datasetType; }
         public void setDatasetType(String datasetType) { this.datasetType = datasetType; }
         public int getVitTrainBatchSize() { return vitTrainBatchSize; }
@@ -72,6 +73,10 @@ public class PBRConfig {
         public void setVitWeightDecay(float vitWeightDecay) { this.vitWeightDecay = vitWeightDecay; }
         public float getVitGradClip() { return vitGradClip; }
         public void setVitGradClip(float vitGradClip) { this.vitGradClip = vitGradClip; }
+        public float getVariancePenaltyTargetStd() { return variancePenaltyTargetStd; }
+        public void setVariancePenaltyTargetStd(float variancePenaltyTargetStd) { this.variancePenaltyTargetStd = variancePenaltyTargetStd; }
+        public float getVariancePenaltyLambda() { return variancePenaltyLambda; }
+        public void setVariancePenaltyLambda(float variancePenaltyLambda) { this.variancePenaltyLambda = variancePenaltyLambda; }
     }
 
     public static class GPUConfig {

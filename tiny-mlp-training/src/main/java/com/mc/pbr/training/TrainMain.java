@@ -96,7 +96,9 @@ public class TrainMain {
                     global.getNumHeads(),
                     global.getMlpDim(),
                     global.getInChannels(),
-                    global.getGpu().getMppNumClasses()
+                    global.getGpu().getMppNumClasses(),
+                    global.getVariancePenaltyTargetStd(),
+                    global.getVariancePenaltyLambda()
             );
             trainer.prepareData();
             trainer.train(train.getModelOutput());
