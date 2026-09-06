@@ -740,3 +740,231 @@ __kernel void vit_head_bwd(
         atomic_add_float(&grad_biases[ln_beta_off + d], d_normed[d]);
     }
 }
+
+__kernel void upsample_nearest_2x(
+    __global const float* input,
+    __global float* output,
+    int batch,
+    int in_h,
+    int in_w,
+    int channels
+) {
+    int out_h = in_h * 2;
+    int out_w = in_w * 2;
+    int total = batch * out_h * out_w * channels;
+    int idx = get_global_id(0);
+    if (idx >= total) return;
+
+    int c = idx % channels;
+    int tmp = idx / channels;
+    int w_out = tmp % out_w;
+    int h_out = tmp / out_w;
+    int b = tmp / (out_h * out_w);
+
+    int h_in = h_out / 2;
+    int w_in = w_out / 2;
+    int in_idx = ((b * in_h + h_in) * in_w + w_in) * channels + c;
+    output[idx] = input[in_idx];
+}
+
+__kernel void upsample_nearest_2x_backward(
+    __global const float* grad_output,
+    __global float* grad_input,
+    int batch,
+    int in_h,
+    int in_w,
+    int channels
+) {
+    int out_h = in_h * 2;
+    int out_w = in_w * 2;
+    int total = batch * out_h * out_w * channels;
+    int idx = get_global_id(0);
+    if (idx >= total) return;
+
+    int c = idx % channels;
+    int tmp = idx / channels;
+    int w_out = tmp % out_w;
+    int h_out = tmp / out_w;
+    int b = tmp / (out_h * out_w);
+
+    int h_in = h_out / 2;
+    int w_in = w_out / 2;
+    int in_idx = ((b * in_h + h_in) * in_w + w_in) * channels + c;
+    atomic_add_float(&grad_input[in_idx], grad_output[idx]);
+}
+
+__kernel void conv2d(
+    __global const float* input,
+    __global const float* weights,
+    __global const float* biases,
+    __global float* output,
+    int batch,
+    int height,
+    int width,
+    int in_channels,
+    int out_channels,
+    int kernel_size
+) {
+    int pad = kernel_size / 2;
+    int total = batch * height * width * out_channels;
+    int idx = get_global_id(0);
+    if (idx >= total) return;
+
+    int c_out = idx % out_channels;
+    int tmp = idx / out_channels;
+    int w = tmp % width;
+    int h = tmp / width;
+    int b = tmp / (height * width);
+
+    float sum = 0.0f;
+    int w_offset = c_out * in_channels * kernel_size * kernel_size;
+    for (int c_in = 0; c_in < in_channels; c_in++) {
+        int c_in_offset = c_in * kernel_size * kernel_size;
+        for (int ky = 0; ky < kernel_size; ky++) {
+            int in_h = h + ky - pad;
+            if (in_h < 0 || in_h >= height) continue;
+            for (int kx = 0; kx < kernel_size; kx++) {
+                int in_w = w + kx - pad;
+                if (in_w < 0 || in_w >= width) continue;
+                int in_idx = ((b * height + in_h) * width + in_w) * in_channels + c_in;
+                int w_idx = w_offset + c_in_offset + ky * kernel_size + kx;
+                sum += input[in_idx] * weights[w_idx];
+            }
+        }
+    }
+    output[idx] = sum + biases[c_out];
+}
+
+__kernel void conv2d_backward(
+    __global const float* grad_output,
+    __global const float* input,
+    __global const float* weights,
+    __global float* grad_weights,
+    __global float* grad_biases,
+    __global float* grad_input,
+    int batch,
+    int height,
+    int width,
+    int in_channels,
+    int out_channels,
+    int kernel_size
+) {
+    int pad = kernel_size / 2;
+    int g_total = batch * height * width * out_channels;
+    int g_idx = get_global_id(0);
+    if (g_idx >= g_total) return;
+
+    int c_out = g_idx % out_channels;
+    int tmp = g_idx / out_channels;
+    int w = tmp % width;
+    int h = tmp / width;
+    int b = tmp / (height * width);
+
+    float g = grad_output[g_idx];
+
+    atomic_add_float(&grad_biases[c_out], g);
+
+    int w_offset = c_out * in_channels * kernel_size * kernel_size;
+    for (int c_in = 0; c_in < in_channels; c_in++) {
+        int c_in_offset = c_in * kernel_size * kernel_size;
+        for (int ky = 0; ky < kernel_size; ky++) {
+            int in_h = h + ky - pad;
+            if (in_h < 0 || in_h >= height) continue;
+            for (int kx = 0; kx < kernel_size; kx++) {
+                int in_w = w + kx - pad;
+                if (in_w < 0 || in_w >= width) continue;
+                int in_idx = ((b * height + in_h) * width + in_w) * in_channels + c_in;
+                int w_idx = w_offset + c_in_offset + ky * kernel_size + kx;
+                atomic_add_float(&grad_weights[w_idx], g * input[in_idx]);
+                atomic_add_float(&grad_input[in_idx], g * weights[w_idx]);
+            }
+        }
+    }
+}
+
+__kernel void conv2d_offset(
+    __global const float* input,
+    __global const float* weights,
+    __global const float* biases,
+    __global float* output,
+    int batch,
+    int height,
+    int width,
+    int in_channels,
+    int out_channels,
+    int kernel_size,
+    int weight_offset,
+    int bias_offset
+) {
+    int pad = kernel_size / 2;
+    int total = batch * height * width * out_channels;
+    int idx = get_global_id(0);
+    if (idx >= total) return;
+    int c_out = idx % out_channels;
+    int tmp = idx / out_channels;
+    int w = tmp % width;
+    int h = tmp / width;
+    int b = tmp / (height * width);
+    float sum = 0.0f;
+    int w_off = weight_offset + c_out * in_channels * kernel_size * kernel_size;
+    for (int c_in = 0; c_in < in_channels; c_in++) {
+        int c_in_offset = c_in * kernel_size * kernel_size;
+        for (int ky = 0; ky < kernel_size; ky++) {
+            int in_h = h + ky - pad;
+            if (in_h < 0 || in_h >= height) continue;
+            for (int kx = 0; kx < kernel_size; kx++) {
+                int in_w = w + kx - pad;
+                if (in_w < 0 || in_w >= width) continue;
+                int in_idx = ((b * height + in_h) * width + in_w) * in_channels + c_in;
+                int w_idx = w_off + c_in_offset + ky * kernel_size + kx;
+                sum += input[in_idx] * weights[w_idx];
+            }
+        }
+    }
+    output[idx] = sum + biases[bias_offset + c_out];
+}
+
+__kernel void conv2d_backward_offset(
+    __global const float* grad_output,
+    __global const float* input,
+    __global const float* weights,
+    __global float* grad_weights,
+    __global float* grad_biases,
+    __global float* grad_input,
+    int batch,
+    int height,
+    int width,
+    int in_channels,
+    int out_channels,
+    int kernel_size,
+    int weight_offset,
+    int bias_offset
+) {
+    int pad = kernel_size / 2;
+    int g_total = batch * height * width * out_channels;
+    int g_idx = get_global_id(0);
+    if (g_idx >= g_total) return;
+    int c_out = g_idx % out_channels;
+    int tmp = g_idx / out_channels;
+    int w = tmp % width;
+    int h = tmp / width;
+    int b = tmp / (height * width);
+    float g = grad_output[g_idx];
+    atomic_add_float(&grad_biases[bias_offset + c_out], g);
+    int w_off = weight_offset + c_out * in_channels * kernel_size * kernel_size;
+    for (int c_in = 0; c_in < in_channels; c_in++) {
+        int c_in_offset = c_in * kernel_size * kernel_size;
+        for (int ky = 0; ky < kernel_size; ky++) {
+            int in_h = h + ky - pad;
+            if (in_h < 0 || in_h >= height) continue;
+            for (int kx = 0; kx < kernel_size; kx++) {
+                int in_w = w + kx - pad;
+                if (in_w < 0 || in_w >= width) continue;
+                int in_idx = ((b * height + in_h) * width + in_w) * in_channels + c_in;
+                int w_idx = w_off + c_in_offset + ky * kernel_size + kx;
+                atomic_add_float(&grad_weights[w_idx], g * input[in_idx]);
+                atomic_add_float(&grad_input[in_idx], g * weights[w_idx]);
+            }
+        }
+    }
+}

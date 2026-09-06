@@ -92,6 +92,12 @@ static int build_program(VitBackend* backend) {
     if (err != CL_SUCCESS) return 0;
     backend->kernel_head_bwd = clCreateKernel(backend->program, "vit_head_bwd", &err);
     if (err != CL_SUCCESS) return 0;
+    backend->kernel_upsample = clCreateKernel(backend->program, "upsample_nearest_2x", &err);
+    if (err != CL_SUCCESS) return 0;
+    backend->kernel_conv_offset = clCreateKernel(backend->program, "conv2d_offset", &err);
+    if (err != CL_SUCCESS) return 0;
+    backend->kernel_conv_backward_offset = clCreateKernel(backend->program, "conv2d_backward_offset", &err);
+    if (err != CL_SUCCESS) return 0;
     return 1;
 }
 
@@ -178,6 +184,18 @@ static void release_buffers(VitBackend* backend) {
     if (backend->d_scores_temp) clReleaseMemObject(backend->d_scores_temp);
     if (backend->d_ffn_temp) clReleaseMemObject(backend->d_ffn_temp);
     if (backend->d_normed_temp) clReleaseMemObject(backend->d_normed_temp);
+    if (backend->d_dec_weights) clReleaseMemObject(backend->d_dec_weights);
+    if (backend->d_dec_biases) clReleaseMemObject(backend->d_dec_biases);
+    if (backend->d_dec_gradWeights) clReleaseMemObject(backend->d_dec_gradWeights);
+    if (backend->d_dec_gradBiases) clReleaseMemObject(backend->d_dec_gradBiases);
+    if (backend->d_dec_mWeights) clReleaseMemObject(backend->d_dec_mWeights);
+    if (backend->d_dec_vWeights) clReleaseMemObject(backend->d_dec_vWeights);
+    if (backend->d_dec_mBiases) clReleaseMemObject(backend->d_dec_mBiases);
+    if (backend->d_dec_vBiases) clReleaseMemObject(backend->d_dec_vBiases);
+    if (backend->d_dec_stage1) clReleaseMemObject(backend->d_dec_stage1);
+    if (backend->d_dec_stage2) clReleaseMemObject(backend->d_dec_stage2);
+    if (backend->d_dec_stage3) clReleaseMemObject(backend->d_dec_stage3);
+    if (backend->d_final_output) clReleaseMemObject(backend->d_final_output);
 }
 
 static int reallocate_buffers(VitBackend* backend, int batch_size) {
@@ -322,8 +340,9 @@ static int init_weights(VitBackend* backend, long seed) {
     return 1;
 }
 
-VitBackend* vit_backend_create(int embed_dim, int num_layers, int num_heads, int mlp_dim, int seq_len, int in_channels, long seed, int mppNumClasses) {
+VitBackend* vit_backend_create(int embed_dim, int num_layers, int num_heads, int mlp_dim, int seq_len, int in_channels, int patch_h, int patch_w, int num_classes, long seed, int mppNumClasses) {
     VitBackend* backend = (VitBackend*)calloc(1, sizeof(VitBackend));
+    cl_int err;
     if (!backend) return NULL;
     backend->embed_dim = embed_dim;
     backend->num_layers = num_layers;
@@ -331,6 +350,12 @@ VitBackend* vit_backend_create(int embed_dim, int num_layers, int num_heads, int
     backend->mlp_dim = mlp_dim;
     backend->seq_len = seq_len;
     backend->in_channels = in_channels;
+    backend->patch_h = patch_h;
+    backend->patch_w = patch_w;
+    backend->num_classes = num_classes;
+    backend->dec_channels[0] = embed_dim / 2;
+    backend->dec_channels[1] = embed_dim / 4;
+    backend->dec_channels[2] = num_classes;
     backend->mpp_num_classes = mppNumClasses;
     backend->max_batch_size = 65536;
     backend->workgroup_size = 256;
@@ -372,10 +397,46 @@ VitBackend* vit_backend_create(int embed_dim, int num_layers, int num_heads, int
     backend->host_mBiases = (float*)calloc(backend->total_biases, sizeof(float));
     if (!backend->host_mBiases) { vit_backend_destroy(backend); return NULL; }
     backend->host_vBiases = (float*)calloc(backend->total_biases, sizeof(float));
+    int dec_total_weights = 0, dec_total_biases = 0;
+    int dec_in = embed_dim;
+    for (int i = 0; i < 3; i++) {
+        int dec_out = backend->dec_channels[i];
+        dec_total_weights += dec_out * dec_in * 9;
+        dec_total_biases += dec_out;
+        dec_in = dec_out;
+    }
+    backend->dec_total_weights = dec_total_weights;
+    backend->dec_total_biases = dec_total_biases;
+    float* host_dec_weights = (float*)malloc(dec_total_weights * sizeof(float));
+    float* host_dec_biases = (float*)malloc(dec_total_biases * sizeof(float));
+    if (!host_dec_weights || !host_dec_biases) { vit_backend_destroy(backend); return NULL; }
+    truncated_normal(host_dec_weights, dec_total_weights, 0.01f, seed + 1);
+    for (int i = 0; i < dec_total_biases; i++) host_dec_biases[i] = 0.0f;
+
+    backend->d_dec_weights = clCreateBuffer(backend->context, CL_MEM_READ_WRITE, dec_total_weights * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) { free(host_dec_weights); free(host_dec_biases); vit_backend_destroy(backend); return NULL; }
+    backend->d_dec_biases = clCreateBuffer(backend->context, CL_MEM_READ_WRITE, dec_total_biases * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) { free(host_dec_weights); free(host_dec_biases); vit_backend_destroy(backend); return NULL; }
+    backend->d_dec_gradWeights = clCreateBuffer(backend->context, CL_MEM_READ_WRITE, dec_total_weights * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) { free(host_dec_weights); free(host_dec_biases); vit_backend_destroy(backend); return NULL; }
+    backend->d_dec_gradBiases = clCreateBuffer(backend->context, CL_MEM_READ_WRITE, dec_total_biases * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) { free(host_dec_weights); free(host_dec_biases); vit_backend_destroy(backend); return NULL; }
+    backend->d_dec_mWeights = clCreateBuffer(backend->context, CL_MEM_READ_WRITE, dec_total_weights * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) { free(host_dec_weights); free(host_dec_biases); vit_backend_destroy(backend); return NULL; }
+    backend->d_dec_vWeights = clCreateBuffer(backend->context, CL_MEM_READ_WRITE, dec_total_weights * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) { free(host_dec_weights); free(host_dec_biases); vit_backend_destroy(backend); return NULL; }
+    backend->d_dec_mBiases = clCreateBuffer(backend->context, CL_MEM_READ_WRITE, dec_total_biases * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) { free(host_dec_weights); free(host_dec_biases); vit_backend_destroy(backend); return NULL; }
+    backend->d_dec_vBiases = clCreateBuffer(backend->context, CL_MEM_READ_WRITE, dec_total_biases * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) { free(host_dec_weights); free(host_dec_biases); vit_backend_destroy(backend); return NULL; }
+
+    clEnqueueWriteBuffer(backend->queue, backend->d_dec_weights, CL_TRUE, 0, dec_total_weights * sizeof(float), host_dec_weights, 0, NULL, NULL);
+    clEnqueueWriteBuffer(backend->queue, backend->d_dec_biases, CL_TRUE, 0, dec_total_biases * sizeof(float), host_dec_biases, 0, NULL, NULL);
+
+    free(host_dec_weights);
+    free(host_dec_biases);
     if (!backend->host_vBiases) { vit_backend_destroy(backend); return NULL; }
 
-    // 创建参数缓冲区（权重、偏置、梯度、Adam状态）——只创建一次
-    cl_int err;
     backend->d_weights = clCreateBuffer(backend->context, CL_MEM_READ_WRITE,
         backend->total_weights * sizeof(float), NULL, &err);
     if (err != CL_SUCCESS) { vit_backend_destroy(backend); return NULL; }
@@ -401,7 +462,6 @@ VitBackend* vit_backend_create(int embed_dim, int num_layers, int num_heads, int
         backend->total_biases * sizeof(float), NULL, &err);
     if (err != CL_SUCCESS) { vit_backend_destroy(backend); return NULL; }
 
-    // MPP 相关参数缓冲区（如有需要）
     backend->d_mask_weights = clCreateBuffer(backend->context, CL_MEM_READ_WRITE,
         backend->embed_dim * backend->mpp_num_classes * sizeof(float), NULL, &err);
     if (err != CL_SUCCESS) { vit_backend_destroy(backend); return NULL; }
@@ -427,21 +487,28 @@ VitBackend* vit_backend_create(int embed_dim, int num_layers, int num_heads, int
         backend->mpp_num_classes * sizeof(float), NULL, &err);
     if (err != CL_SUCCESS) { vit_backend_destroy(backend); return NULL; }
 
-    // 初始化权重并写入设备
     if (!init_weights(backend, seed)) { vit_backend_destroy(backend); return NULL; }
 
-    // 分配动态缓冲区（输入、中间激活、输出等），batch=1 初始
     if (!reallocate_buffers(backend, 1)) { vit_backend_destroy(backend); return NULL; }
-
+    int final_h = patch_h * 8;
+    int final_w = patch_w * 8;
+    backend->d_final_output = clCreateBuffer(backend->context, CL_MEM_READ_WRITE, 1 * final_h * final_w * num_classes * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) { vit_backend_destroy(backend); return NULL; }
+    int h1 = patch_h * 2, w1 = patch_w * 2, c1 = embed_dim / 2;
+    int h2 = patch_h * 4, w2 = patch_w * 4, c2 = embed_dim / 4;
+    int h3 = patch_h * 8, w3 = patch_w * 8, c3 = num_classes;
+    backend->d_dec_stage1 = clCreateBuffer(backend->context, CL_MEM_READ_WRITE, 1 * h1 * w1 * c1 * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) { vit_backend_destroy(backend); return NULL; }
+    backend->d_dec_stage2 = clCreateBuffer(backend->context, CL_MEM_READ_WRITE, 1 * h2 * w2 * c2 * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) { vit_backend_destroy(backend); return NULL; }
+    backend->d_dec_stage3 = clCreateBuffer(backend->context, CL_MEM_READ_WRITE, 1 * h3 * w3 * c3 * sizeof(float), NULL, &err);
+    if (err != CL_SUCCESS) { vit_backend_destroy(backend); return NULL; }
     backend->initialized = 1;
     return backend;
 }
 
-VitBackend* vit_backend_create_with_weights(int embed_dim, int num_layers, int num_heads, int mlp_dim, int seq_len, int in_channels, const float* weights, const float* biases, int mppNumClasses) {
-    VitBackend* backend = vit_backend_create(embed_dim, num_layers, num_heads, mlp_dim, seq_len, in_channels, 0, mppNumClasses);
-    if (!backend) return NULL;
-    if (weights) vit_backend_set_weights(backend, weights);
-    if (biases) vit_backend_set_biases(backend, biases);
+VitBackend* vit_backend_create_with_weights(int embed_dim, int num_layers, int num_heads, int mlp_dim, int seq_len, int in_channels, int patch_h, int patch_w, int num_classes, const float* weights, const float* biases, int mppNumClasses) {
+    VitBackend* backend = vit_backend_create(embed_dim, num_layers, num_heads, mlp_dim, seq_len, in_channels, patch_h, patch_w, num_classes, 0, mppNumClasses);
     return backend;
 }
 
@@ -465,6 +532,9 @@ void vit_backend_destroy(VitBackend* backend) {
     if (backend->kernel_attention_bwd) clReleaseKernel(backend->kernel_attention_bwd);
     if (backend->kernel_ffn_bwd) clReleaseKernel(backend->kernel_ffn_bwd);
     if (backend->kernel_head_bwd) clReleaseKernel(backend->kernel_head_bwd);
+    if (backend->kernel_upsample) clReleaseKernel(backend->kernel_upsample);
+    if (backend->kernel_conv_offset) clReleaseKernel(backend->kernel_conv_offset);
+    if (backend->kernel_conv_backward_offset) clReleaseKernel(backend->kernel_conv_backward_offset);
     if (backend->program) clReleaseProgram(backend->program);
     if (backend->queue) clReleaseCommandQueue(backend->queue);
     if (backend->context) clReleaseContext(backend->context);
@@ -645,26 +715,57 @@ void vit_backend_forward(VitBackend* backend, const float* input, float* output,
         if (err != CL_SUCCESS) return;
     }
 
-    int final_ln_gamma = offsets[3 + num_layers * 8 + 0];
-    int final_ln_beta = bias_offsets[1 + num_layers * 8 + 0];
-    int head_weight = offsets[3 + num_layers * 8 + 1];
-    int head_bias = bias_offsets[1 + num_layers * 8 + 1];
-
-    clSetKernelArg(backend->kernel_head, 0, sizeof(cl_mem), &current);
-    clSetKernelArg(backend->kernel_head, 1, sizeof(cl_mem), &backend->d_weights);
-    clSetKernelArg(backend->kernel_head, 2, sizeof(cl_mem), &backend->d_biases);
-    clSetKernelArg(backend->kernel_head, 3, sizeof(cl_mem), &backend->d_output);
-    clSetKernelArg(backend->kernel_head, 4, sizeof(int), &batch_size);
-    clSetKernelArg(backend->kernel_head, 5, sizeof(int), &total_tokens);
-    clSetKernelArg(backend->kernel_head, 6, sizeof(int), &embed_dim);
-    clSetKernelArg(backend->kernel_head, 7, sizeof(int), &head_weight);
-    clSetKernelArg(backend->kernel_head, 8, sizeof(int), &head_bias);
-    size_t global_head = batch_size * total_tokens;
-    err = clEnqueueNDRangeKernel(backend->queue, backend->kernel_head, 1, NULL, &global_head, NULL, 0, NULL, NULL);
-    if (err != CL_SUCCESS) return;
-
-    err = clEnqueueReadBuffer(backend->queue, backend->d_output, CL_TRUE, 0,
-        batch_size * total_tokens * sizeof(float), output, 0, NULL, NULL);
+    int dec_in = embed_dim;
+    int h = backend->patch_h;
+    int w = backend->patch_w;
+    cl_mem dec_input = current;
+    int weight_offset = 0;
+    int bias_offset = 0;
+    int dec_in_prev = embed_dim;
+    for (int stage = 0; stage < 3; stage++) {
+        int out_c = backend->dec_channels[stage];
+        int out_h = h * 2;
+        int out_w = w * 2;
+        cl_mem stage_out = (stage == 0) ? backend->d_dec_stage1 :
+                           (stage == 1) ? backend->d_dec_stage2 :
+                           backend->d_dec_stage3;
+        clSetKernelArg(backend->kernel_upsample, 0, sizeof(cl_mem), &dec_input);
+        clSetKernelArg(backend->kernel_upsample, 1, sizeof(cl_mem), &stage_out);
+        clSetKernelArg(backend->kernel_upsample, 2, sizeof(int), &batch_size);
+        clSetKernelArg(backend->kernel_upsample, 3, sizeof(int), &h);
+        clSetKernelArg(backend->kernel_upsample, 4, sizeof(int), &w);
+        clSetKernelArg(backend->kernel_upsample, 5, sizeof(int), &dec_in);
+        size_t gu = batch_size * out_h * out_w * dec_in;
+        err = clEnqueueNDRangeKernel(backend->queue, backend->kernel_upsample, 1, NULL, &gu, NULL, 0, NULL, NULL);
+        if (err != CL_SUCCESS) return;
+        clSetKernelArg(backend->kernel_conv_offset, 0, sizeof(cl_mem), &stage_out);
+        clSetKernelArg(backend->kernel_conv_offset, 1, sizeof(cl_mem), &backend->d_dec_weights);
+        clSetKernelArg(backend->kernel_conv_offset, 2, sizeof(cl_mem), &backend->d_dec_biases);
+        clSetKernelArg(backend->kernel_conv_offset, 3, sizeof(cl_mem), &stage_out);
+        clSetKernelArg(backend->kernel_conv_offset, 4, sizeof(int), &batch_size);
+        clSetKernelArg(backend->kernel_conv_offset, 5, sizeof(int), &out_h);
+        clSetKernelArg(backend->kernel_conv_offset, 6, sizeof(int), &out_w);
+        clSetKernelArg(backend->kernel_conv_offset, 7, sizeof(int), &dec_in);
+        clSetKernelArg(backend->kernel_conv_offset, 8, sizeof(int), &out_c);
+        int kernel_size = 3;
+        clSetKernelArg(backend->kernel_conv_offset, 9, sizeof(int), &kernel_size);
+        clSetKernelArg(backend->kernel_conv_offset, 10, sizeof(int), &weight_offset);
+        clSetKernelArg(backend->kernel_conv_offset, 11, sizeof(int), &bias_offset);
+        size_t gc = batch_size * out_h * out_w * out_c;
+        err = clEnqueueNDRangeKernel(backend->queue, backend->kernel_conv_offset, 1, NULL, &gc, NULL, 0, NULL, NULL);
+        if (err != CL_SUCCESS) return;
+        weight_offset += out_c * dec_in_prev * 9;
+        bias_offset += out_c;
+        dec_in_prev = dec_in;
+        dec_input = stage_out;
+        dec_in = out_c;
+        h = out_h;
+        w = out_w;
+    }
+    int final_h = backend->patch_h * 8;
+    int final_w = backend->patch_w * 8;
+    err = clEnqueueReadBuffer(backend->queue, backend->d_dec_stage3, CL_TRUE, 0,
+        batch_size * final_h * final_w * backend->num_classes * sizeof(float), output, 0, NULL, NULL);
     if (err != CL_SUCCESS) return;
 }
 
@@ -899,6 +1000,26 @@ void vit_backend_adamw_update(VitBackend* backend, int batch_size, float lr, flo
     clSetKernelArg(backend->kernel_adamw_update, 16, sizeof(int), &step);
     size_t global = total;
     clEnqueueNDRangeKernel(backend->queue, backend->kernel_adamw_update, 1, NULL, &global, NULL, 0, NULL, NULL);
+
+    clSetKernelArg(backend->kernel_adamw_update, 0, sizeof(cl_mem), &backend->d_dec_weights);
+    clSetKernelArg(backend->kernel_adamw_update, 1, sizeof(cl_mem), &backend->d_dec_biases);
+    clSetKernelArg(backend->kernel_adamw_update, 2, sizeof(cl_mem), &backend->d_dec_gradWeights);
+    clSetKernelArg(backend->kernel_adamw_update, 3, sizeof(cl_mem), &backend->d_dec_gradBiases);
+    clSetKernelArg(backend->kernel_adamw_update, 4, sizeof(cl_mem), &backend->d_dec_mWeights);
+    clSetKernelArg(backend->kernel_adamw_update, 5, sizeof(cl_mem), &backend->d_dec_vWeights);
+    clSetKernelArg(backend->kernel_adamw_update, 6, sizeof(cl_mem), &backend->d_dec_mBiases);
+    clSetKernelArg(backend->kernel_adamw_update, 7, sizeof(cl_mem), &backend->d_dec_vBiases);
+    clSetKernelArg(backend->kernel_adamw_update, 8, sizeof(int), &batch_size);
+    clSetKernelArg(backend->kernel_adamw_update, 9, sizeof(float), &lr);
+    clSetKernelArg(backend->kernel_adamw_update, 10, sizeof(float), &beta1);
+    clSetKernelArg(backend->kernel_adamw_update, 11, sizeof(float), &beta2);
+    clSetKernelArg(backend->kernel_adamw_update, 12, sizeof(float), &epsilon);
+    clSetKernelArg(backend->kernel_adamw_update, 13, sizeof(float), &weight_decay);
+    clSetKernelArg(backend->kernel_adamw_update, 14, sizeof(int), &backend->dec_total_weights);
+    clSetKernelArg(backend->kernel_adamw_update, 15, sizeof(int), &backend->dec_total_biases);
+    clSetKernelArg(backend->kernel_adamw_update, 16, sizeof(int), &step);
+    size_t gdec = backend->dec_total_weights + backend->dec_total_biases;
+    clEnqueueNDRangeKernel(backend->queue, backend->kernel_adamw_update, 1, NULL, &gdec, NULL, 0, NULL, NULL);
     clFlush(backend->queue);
 }
 
@@ -939,6 +1060,10 @@ void vit_backend_zero_gradients(VitBackend* backend) {
         backend->total_weights * sizeof(float), 0, NULL, NULL);
     clEnqueueFillBuffer(backend->queue, backend->d_gradBiases, &zero, sizeof(float), 0,
         backend->total_biases * sizeof(float), 0, NULL, NULL);
+    clEnqueueFillBuffer(backend->queue, backend->d_dec_gradWeights, &zero, sizeof(float), 0,
+        backend->dec_total_weights * sizeof(float), 0, NULL, NULL);
+    clEnqueueFillBuffer(backend->queue, backend->d_dec_gradBiases, &zero, sizeof(float), 0,
+        backend->dec_total_biases * sizeof(float), 0, NULL, NULL);
     clFlush(backend->queue);
 }
 
@@ -947,6 +1072,8 @@ void vit_backend_get_weights(VitBackend* backend, float* out) {
     clFinish(backend->queue);
     clEnqueueReadBuffer(backend->queue, backend->d_weights, CL_TRUE, 0,
         backend->total_weights * sizeof(float), out, 0, NULL, NULL);
+    clEnqueueReadBuffer(backend->queue, backend->d_dec_weights, CL_TRUE, 0,
+        backend->dec_total_weights * sizeof(float), out + backend->total_weights, 0, NULL, NULL);
 }
 
 void vit_backend_get_biases(VitBackend* backend, float* out) {
@@ -954,26 +1081,32 @@ void vit_backend_get_biases(VitBackend* backend, float* out) {
     clFinish(backend->queue);
     clEnqueueReadBuffer(backend->queue, backend->d_biases, CL_TRUE, 0,
         backend->total_biases * sizeof(float), out, 0, NULL, NULL);
+    clEnqueueReadBuffer(backend->queue, backend->d_dec_biases, CL_TRUE, 0,
+        backend->dec_total_biases * sizeof(float), out + backend->total_biases, 0, NULL, NULL);
 }
 
 void vit_backend_set_weights(VitBackend* backend, const float* weights) {
     if (!backend || !weights) return;
     clEnqueueWriteBuffer(backend->queue, backend->d_weights, CL_TRUE, 0,
         backend->total_weights * sizeof(float), weights, 0, NULL, NULL);
+    clEnqueueWriteBuffer(backend->queue, backend->d_dec_weights, CL_TRUE, 0,
+        backend->dec_total_weights * sizeof(float), weights + backend->total_weights, 0, NULL, NULL);
 }
 
 void vit_backend_set_biases(VitBackend* backend, const float* biases) {
     if (!backend || !biases) return;
     clEnqueueWriteBuffer(backend->queue, backend->d_biases, CL_TRUE, 0,
         backend->total_biases * sizeof(float), biases, 0, NULL, NULL);
+    clEnqueueWriteBuffer(backend->queue, backend->d_dec_biases, CL_TRUE, 0,
+        backend->dec_total_biases * sizeof(float), biases + backend->total_biases, 0, NULL, NULL);
 }
 
 int vit_backend_get_total_weights(VitBackend* backend) {
-    return backend ? backend->total_weights : 0;
+    return backend ? backend->total_weights + backend->dec_total_weights : 0;
 }
 
 int vit_backend_get_total_biases(VitBackend* backend) {
-    return backend ? backend->total_biases : 0;
+    return backend ? backend->total_biases + backend->dec_total_biases : 0;
 }
 
 float vit_backend_mpp_forward(VitBackend* backend, const int* mask_indices, const int* targets, int batch_size, int num_masked, int num_classes) {

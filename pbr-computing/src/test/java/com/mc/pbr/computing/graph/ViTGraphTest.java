@@ -25,20 +25,26 @@ public class ViTGraphTest {
         int numLayers = 4;
         int numHeads = 4;
         int mlpDim = 128;
-        int seqLen = 7;
+        int imageH = 32;
+        int imageW = 32;
+        int patchSize = 8;
         int inChannels = 4;
+        int numClasses = 10;
         long seed = 42L;
         int mppNumClasses = 512;
-        ViTGraph graph = new ViTGraph(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, seed, mppNumClasses);
+        ViTGraph graph = new ViTGraph(embedDim, numLayers, numHeads, mlpDim, imageH, imageW, patchSize, inChannels, numClasses, seed, mppNumClasses);
         int batchSize = 2;
+        int seqLen = (imageH / patchSize) * (imageW / patchSize);
         int featureDim = seqLen * inChannels;
         float[] input = new float[batchSize * featureDim];
         for (int i = 0; i < input.length; i++) {
             input[i] = (float) Math.random();
         }
-        float[] output = new float[batchSize];
+        int finalH = imageH;
+        int finalW = imageW;
+        float[] output = new float[batchSize * finalH * finalW * numClasses];
         graph.forward(input, output, batchSize);
-        assertEquals(batchSize, output.length);
+        assertEquals(batchSize * finalH * finalW * numClasses, output.length);
         for (float v : output) {
             assertFalse(Float.isNaN(v));
             assertFalse(Float.isInfinite(v));
@@ -52,27 +58,36 @@ public class ViTGraphTest {
         int numLayers = 4;
         int numHeads = 4;
         int mlpDim = 128;
-        int seqLen = 7;
+        int imageH = 32;
+        int imageW = 32;
+        int patchSize = 8;
         int inChannels = 4;
+        int numClasses = 10;
         long seed = 42L;
         int mppNumClasses = 512;
-        ViTGraph graph = new ViTGraph(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, seed, mppNumClasses);
+        ViTGraph graph = new ViTGraph(embedDim, numLayers, numHeads, mlpDim, imageH, imageW, patchSize, inChannels, numClasses, seed, mppNumClasses);
         float[] weights = graph.getWeights();
         float[] biases = graph.getBiases();
         assertNotNull(weights);
         assertNotNull(biases);
         assertTrue(weights.length > 0);
         assertTrue(biases.length > 0);
-        ViTGraph graph2 = new ViTGraph(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, weights, biases, mppNumClasses);
-        float[] input = new float[seqLen * inChannels];
+        ViTGraph graph2 = new ViTGraph(embedDim, numLayers, numHeads, mlpDim, imageH, imageW, patchSize, inChannels, numClasses, weights, biases, mppNumClasses);
+        int seqLen = (imageH / patchSize) * (imageW / patchSize);
+        int featureDim = seqLen * inChannels;
+        float[] input = new float[featureDim];
         for (int i = 0; i < input.length; i++) {
             input[i] = (float) i / input.length;
         }
-        float[] out1 = new float[1];
-        float[] out2 = new float[1];
+        int finalH = imageH;
+        int finalW = imageW;
+        float[] out1 = new float[finalH * finalW * numClasses];
+        float[] out2 = new float[finalH * finalW * numClasses];
         graph.forward(input, out1, 1);
         graph2.forward(input, out2, 1);
-        assertEquals(out1[0], out2[0], 1e-6f);
+        for (int i = 0; i < out1.length; i++) {
+            assertEquals(out1[i], out2[i], 1e-6f);
+        }
         graph.close();
         graph2.close();
     }
@@ -83,29 +98,33 @@ public class ViTGraphTest {
         int numLayers = 2;
         int numHeads = 4;
         int mlpDim = 64;
-        int seqLen = 4;
+        int imageH = 16;
+        int imageW = 16;
+        int patchSize = 8;
         int inChannels = 5;
+        int numClasses = 3;
         long seed = 42L;
         int mppNumClasses = 512;
-        ViTGraph graph = new ViTGraph(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, seed, mppNumClasses);
+        ViTGraph graph = new ViTGraph(embedDim, numLayers, numHeads, mlpDim, imageH, imageW, patchSize, inChannels, numClasses, seed, mppNumClasses);
         int batchSize = 2;
+        int seqLen = (imageH / patchSize) * (imageW / patchSize);
         int featureDim = seqLen * inChannels;
         float[] input = new float[batchSize * featureDim];
-        float[] label = new float[batchSize];
+        int finalH = imageH;
+        int finalW = imageW;
+        float[] label = new float[batchSize * finalH * finalW * numClasses];
         for (int i = 0; i < input.length; i++) {
             input[i] = (float) (i + 1) / input.length;
         }
-        for (int i = 0; i < batchSize; i++) {
-            label[i] = (float) i / batchSize;
+        for (int i = 0; i < label.length; i++) {
+            label[i] = (float) i / label.length;
         }
-        float[] output = new float[batchSize];
+        float[] output = new float[batchSize * finalH * finalW * numClasses];
         graph.forward(input, output, batchSize);
 
-        // MSE Loss = sum((y-yhat)^2) / N
-        // dLoss/dOutput = 2 * (yhat - y) / N
-        float[] gradOutput = new float[batchSize];
-        for (int i = 0; i < batchSize; i++) {
-            gradOutput[i] = 2.0f * (output[i] - label[i]) / batchSize;
+        float[] gradOutput = new float[output.length];
+        for (int i = 0; i < output.length; i++) {
+            gradOutput[i] = 2.0f * (output[i] - label[i]) / (output.length * batchSize);
         }
 
         graph.zeroGradients();
@@ -114,7 +133,7 @@ public class ViTGraphTest {
         float[] weightsOrig = graph.getWeights();
         float[] gradNum = new float[weightsOrig.length];
         float epsilon = 1e-3f;
-        ViTGraph tempGraph = new ViTGraph(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, weightsOrig.clone(), graph.getBiases().clone(), mppNumClasses);
+        ViTGraph tempGraph = new ViTGraph(embedDim, numLayers, numHeads, mlpDim, imageH, imageW, patchSize, inChannels, numClasses, weightsOrig.clone(), graph.getBiases().clone(), mppNumClasses);
         float[] wTemp = weightsOrig.clone();
         int total = weightsOrig.length;
         long startTime = System.currentTimeMillis();
@@ -123,25 +142,31 @@ public class ViTGraphTest {
             float originalVal = wTemp[i];
             wTemp[i] = originalVal + epsilon;
             tempGraph.setWeights(wTemp);
-            float[] outPlus = new float[batchSize];
+            float[] outPlus = new float[batchSize * finalH * finalW * numClasses];
             tempGraph.forward(input, outPlus, batchSize);
             double lossPlus = 0.0;
             for (int b = 0; b < batchSize; b++) {
-                double diff = (double)outPlus[b] - (double)label[b];
-                lossPlus += diff * diff;
+                for (int p = 0; p < finalH * finalW * numClasses; p++) {
+                    int idx = b * (finalH * finalW * numClasses) + p;
+                    double diff = (double)outPlus[idx] - (double)label[idx];
+                    lossPlus += diff * diff;
+                }
             }
-            lossPlus /= batchSize;
+            lossPlus /= (batchSize * finalH * finalW * numClasses);
 
             wTemp[i] = originalVal - epsilon;
             tempGraph.setWeights(wTemp);
-            float[] outMinus = new float[batchSize];
+            float[] outMinus = new float[batchSize * finalH * finalW * numClasses];
             tempGraph.forward(input, outMinus, batchSize);
             double lossMinus = 0.0;
             for (int b = 0; b < batchSize; b++) {
-                double diff = (double)outMinus[b] - (double)label[b];
-                lossMinus += diff * diff;
+                for (int p = 0; p < finalH * finalW * numClasses; p++) {
+                    int idx = b * (finalH * finalW * numClasses) + p;
+                    double diff = (double)outMinus[idx] - (double)label[idx];
+                    lossMinus += diff * diff;
+                }
             }
-            lossMinus /= batchSize;
+            lossMinus /= (batchSize * finalH * finalW * numClasses);
 
             wTemp[i] = originalVal;
             gradNum[i] = (float)((lossPlus - lossMinus) / (2.0 * epsilon));

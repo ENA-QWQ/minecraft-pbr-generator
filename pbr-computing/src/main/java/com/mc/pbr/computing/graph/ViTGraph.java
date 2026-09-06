@@ -8,26 +8,41 @@ public class ViTGraph implements ModelGraph {
     private final int labelDim;
     private final int[] layerSizes;
     private final int seqLen;
+    private final int patchH;
+    private final int patchW;
+    private final int numClasses;
+    private final int imageH;
+    private final int imageW;
     private boolean closed = false;
 
-    public ViTGraph(int embedDim, int numLayers, int numHeads, int mlpDim, int seqLen, int inChannels, long seed, int mppNumClasses) {
-        this.seqLen = seqLen;
-        this.nativeHandle = CLNative.createViT(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, seed, mppNumClasses);
+    public ViTGraph(int embedDim, int numLayers, int numHeads, int mlpDim, int imageH, int imageW, int patchSize, int inChannels, int numClasses, long seed, int mppNumClasses) {
+        this.imageH = imageH;
+        this.imageW = imageW;
+        this.patchH = imageH / patchSize;
+        this.patchW = imageW / patchSize;
+        this.seqLen = this.patchH * this.patchW;
+        this.numClasses = numClasses;
+        this.nativeHandle = CLNative.createViT(embedDim, numLayers, numHeads, mlpDim, this.seqLen, inChannels, this.patchH, this.patchW, numClasses, seed, mppNumClasses);
         if (this.nativeHandle == 0) {
             throw new RuntimeException("Failed to initialize ViT graph");
         }
-        this.featureDim = seqLen * inChannels;
-        this.labelDim = seqLen;
+        this.featureDim = this.seqLen * inChannels;
+        this.labelDim = imageH * imageW;
         this.layerSizes = new int[]{featureDim, embedDim, numLayers, numHeads, mlpDim};
     }
 
-    public ViTGraph(int embedDim, int numLayers, int numHeads, int mlpDim, int seqLen, int inChannels, float[] weights, float[] biases, int mppNumClasses) {
-        this.seqLen = seqLen;
+    public ViTGraph(int embedDim, int numLayers, int numHeads, int mlpDim, int imageH, int imageW, int patchSize, int inChannels, int numClasses, float[] weights, float[] biases, int mppNumClasses) {
+        this.imageH = imageH;
+        this.imageW = imageW;
+        this.patchH = imageH / patchSize;
+        this.patchW = imageW / patchSize;
+        this.seqLen = this.patchH * this.patchW;
+        this.numClasses = numClasses;
         int totalWeights = 0;
         int totalBiases = 0;
         totalWeights += inChannels * embedDim;
         totalWeights += embedDim;
-        totalWeights += (seqLen + 1) * embedDim;
+        totalWeights += (this.seqLen + 1) * embedDim;
         for (int l = 0; l < numLayers; l++) {
             totalWeights += embedDim;
             totalBiases += embedDim;
@@ -46,18 +61,25 @@ public class ViTGraph implements ModelGraph {
         totalBiases += embedDim;
         totalWeights += embedDim;
         totalBiases += 1;
+        int decIn = embedDim;
+        for (int i = 0; i < 3; i++) {
+            int decOut = (i == 0) ? embedDim / 2 : (i == 1) ? embedDim / 4 : numClasses;
+            totalWeights += decOut * decIn * 9;
+            totalBiases += decOut;
+            decIn = decOut;
+        }
         if (weights != null && weights.length != totalWeights) {
             throw new RuntimeException("Invalid weights length: expected " + totalWeights + ", got " + weights.length);
         }
         if (biases != null && biases.length != totalBiases) {
             throw new RuntimeException("Invalid biases length: expected " + totalBiases + ", got " + biases.length);
         }
-        this.nativeHandle = CLNative.createViTWithWeights(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, weights, biases, mppNumClasses);
+        this.nativeHandle = CLNative.createViTWithWeights(embedDim, numLayers, numHeads, mlpDim, this.seqLen, inChannels, this.patchH, this.patchW, numClasses, weights, biases, mppNumClasses);
         if (this.nativeHandle == 0) {
             throw new RuntimeException("Failed to initialize ViT graph with weights");
         }
-        this.featureDim = seqLen * inChannels;
-        this.labelDim = seqLen;
+        this.featureDim = this.seqLen * inChannels;
+        this.labelDim = imageH * imageW;
         this.layerSizes = new int[]{featureDim, embedDim, numLayers, numHeads, mlpDim};
     }
 
@@ -73,46 +95,18 @@ public class ViTGraph implements ModelGraph {
     @Override
     public void forward(float[] input, float[] output, int batchSize) {
         checkClosed();
-        int totalTokens = seqLen + 1;
-        float[] fullOutput = new float[batchSize * totalTokens];
-        CLNative.forwardViT(nativeHandle, input, fullOutput, batchSize);
-        int copyCount = Math.min(seqLen, output.length / batchSize);
-        for (int b = 0; b < batchSize; b++) {
-            System.arraycopy(fullOutput, b * totalTokens + 1, output, b * copyCount, copyCount);
-        }
+        CLNative.forwardViT(nativeHandle, input, output, batchSize);
     }
 
     @Override
     public void backward(float[] input, float[] label, float[] gradOutput, int batchSize) {
         checkClosed();
-        int totalTokens = seqLen + 1;
-        int gradCopyCount = Math.min(seqLen, gradOutput.length / batchSize);
-        float[] fullGrad = new float[batchSize * totalTokens];
-        for (int b = 0; b < batchSize; b++) {
-            System.arraycopy(gradOutput, b * gradCopyCount, fullGrad, b * totalTokens + 1, gradCopyCount);
-        }
-        int labelCopyCount = Math.min(seqLen, label.length / batchSize);
-        float[] fullLabel = new float[batchSize * totalTokens];
-        for (int b = 0; b < batchSize; b++) {
-            System.arraycopy(label, b * labelCopyCount, fullLabel, b * totalTokens + 1, labelCopyCount);
-        }
-        CLNative.backwardViT(nativeHandle, input, fullLabel, fullGrad, batchSize);
+        CLNative.backwardViT(nativeHandle, input, label, gradOutput, batchSize);
     }
 
     @Override
     public void update(float[][] gradWeights, float[] gradBiases, int batchSize, float lr, float momentum) {
         checkClosed();
-        float[] flatGradWeights = null;
-        if (gradWeights != null) {
-            int total = 0;
-            for (float[] row : gradWeights) total += row.length;
-            flatGradWeights = new float[total];
-            int offset = 0;
-            for (float[] row : gradWeights) {
-                System.arraycopy(row, 0, flatGradWeights, offset, row.length);
-                offset += row.length;
-            }
-        }
         CLNative.adamwUpdateViT(nativeHandle, batchSize, lr, 0.9f, 0.999f, 1e-8f, 0.1f, 0);
     }
 
