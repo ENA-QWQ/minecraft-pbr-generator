@@ -509,6 +509,9 @@ VitBackend* vit_backend_create(int embed_dim, int num_layers, int num_heads, int
 
 VitBackend* vit_backend_create_with_weights(int embed_dim, int num_layers, int num_heads, int mlp_dim, int seq_len, int in_channels, int patch_h, int patch_w, int num_classes, const float* weights, const float* biases, int mppNumClasses) {
     VitBackend* backend = vit_backend_create(embed_dim, num_layers, num_heads, mlp_dim, seq_len, in_channels, patch_h, patch_w, num_classes, 0, mppNumClasses);
+    if (!backend) return NULL;
+    if (weights) vit_backend_set_weights(backend, weights);
+    if (biases) vit_backend_set_biases(backend, biases);
     return backend;
 }
 
@@ -551,19 +554,7 @@ void vit_backend_destroy(VitBackend* backend) {
 void vit_backend_forward(VitBackend* backend, const float* input, float* output, int batch_size) {
     if (!backend || !backend->initialized) return;
     cl_int err;
-    float* debug_w1 = (float*)malloc(5 * sizeof(float));
-    if (debug_w1) {
-        clFinish(backend->queue);
-        clEnqueueReadBuffer(backend->queue, backend->d_weights, CL_TRUE, 0, 5 * sizeof(float), debug_w1, 0, NULL, NULL);
-        free(debug_w1);
-    }
     if (!ensure_buffers(backend, batch_size)) return;
-    float* debug_w2 = (float*)malloc(5 * sizeof(float));
-    if (debug_w2) {
-        clFinish(backend->queue);
-        clEnqueueReadBuffer(backend->queue, backend->d_weights, CL_TRUE, 0, 5 * sizeof(float), debug_w2, 0, NULL, NULL);
-        free(debug_w2);
-    }
     int seq_len = backend->seq_len;
     int embed_dim = backend->embed_dim;
     int total_tokens = seq_len + 1;
@@ -1069,7 +1060,7 @@ void vit_backend_zero_gradients(VitBackend* backend) {
 
 void vit_backend_get_weights(VitBackend* backend, float* out) {
     if (!backend || !out) return;
-    clFinish(backend->queue);
+    int total = backend->total_weights + backend->dec_total_weights;
     clEnqueueReadBuffer(backend->queue, backend->d_weights, CL_TRUE, 0,
         backend->total_weights * sizeof(float), out, 0, NULL, NULL);
     clEnqueueReadBuffer(backend->queue, backend->d_dec_weights, CL_TRUE, 0,
@@ -1078,7 +1069,7 @@ void vit_backend_get_weights(VitBackend* backend, float* out) {
 
 void vit_backend_get_biases(VitBackend* backend, float* out) {
     if (!backend || !out) return;
-    clFinish(backend->queue);
+    int total = backend->total_biases + backend->dec_total_biases;
     clEnqueueReadBuffer(backend->queue, backend->d_biases, CL_TRUE, 0,
         backend->total_biases * sizeof(float), out, 0, NULL, NULL);
     clEnqueueReadBuffer(backend->queue, backend->d_dec_biases, CL_TRUE, 0,
@@ -1087,6 +1078,7 @@ void vit_backend_get_biases(VitBackend* backend, float* out) {
 
 void vit_backend_set_weights(VitBackend* backend, const float* weights) {
     if (!backend || !weights) return;
+    int total = backend->total_weights + backend->dec_total_weights;
     clEnqueueWriteBuffer(backend->queue, backend->d_weights, CL_TRUE, 0,
         backend->total_weights * sizeof(float), weights, 0, NULL, NULL);
     clEnqueueWriteBuffer(backend->queue, backend->d_dec_weights, CL_TRUE, 0,
@@ -1095,6 +1087,7 @@ void vit_backend_set_weights(VitBackend* backend, const float* weights) {
 
 void vit_backend_set_biases(VitBackend* backend, const float* biases) {
     if (!backend || !biases) return;
+    int total = backend->total_biases + backend->dec_total_biases;
     clEnqueueWriteBuffer(backend->queue, backend->d_biases, CL_TRUE, 0,
         backend->total_biases * sizeof(float), biases, 0, NULL, NULL);
     clEnqueueWriteBuffer(backend->queue, backend->d_dec_biases, CL_TRUE, 0,
@@ -1178,7 +1171,6 @@ void vit_backend_mpp_backward(VitBackend* backend, const int* mask_indices, cons
 
 void vit_backend_get_gradients(VitBackend* backend, float* out) {
     if (!backend || !out) return;
-    clFinish(backend->queue);
     clEnqueueReadBuffer(backend->queue, backend->d_gradWeights, CL_TRUE, 0,
         backend->total_weights * sizeof(float), out, 0, NULL, NULL);
 }

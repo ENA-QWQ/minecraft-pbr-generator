@@ -262,10 +262,16 @@ public class Trainer {
     }
 
     private void trainVit(String savePath) throws IOException {
-        ViTGraph vit = new ViTGraph(embedDim, numLayers, numHeads, mlpDim, seqLen, inChannels, rng.nextLong(), mppNumClasses);
+        int patchH = seqLen;
+        int patchW = 1;
+        int patchSize = 1;
+        int imageH = patchH * patchSize;
+        int imageW = patchW * patchSize;
+        int numClasses = 1;
+        int outSize = imageH * imageW * numClasses;
+        ViTGraph vit = new ViTGraph(embedDim, numLayers, numHeads, mlpDim, imageH, imageW, patchSize, inChannels, numClasses, rng.nextLong(), mppNumClasses);
         System.out.println("[INFO] Architecture: ViT (embed=" + embedDim + ", layers=" + numLayers + ", heads=" + numHeads + ", mlp=" + mlpDim + ", seq=" + seqLen + ")");
 
-        // 诊断：打印初始权重统计
         float[] initWeights = vit.getWeights();
         float wSum = 0, wSumSq = 0;
         for (float v : initWeights) { wSum += v; wSumSq += v * v; }
@@ -287,8 +293,8 @@ public class Trainer {
 
         float[] batchInput = new float[batchSize * featureDim];
         float[] batchLabel = new float[batchSize * labelDim];
-        float[] batchOutput = new float[batchSize * (seqLen + 1)];
-        float[] gradOutput = new float[batchSize * (seqLen + 1)];
+        float[] batchOutput = new float[batchSize * outSize];
+        float[] gradOutput = new float[batchSize * outSize];
 
         long totalStart = System.currentTimeMillis();
 
@@ -300,7 +306,6 @@ public class Trainer {
         float targetStd = variancePenaltyTargetStd;
         float lambda = variancePenaltyLambda;
         float eps = 1e-8f;
-        boolean firstBatch = true;
 
         for (int epoch = 1; epoch <= maxEpochs; epoch++) {
             long epochStart = System.currentTimeMillis();
@@ -321,11 +326,11 @@ public class Trainer {
                 vit.zeroGradients();
                 vit.forward(batchInput, batchOutput, actualBatchSize);
 
-                for (int i = 0; i < actualBatchSize * (seqLen + 1); i++) {
+                for (int i = 0; i < actualBatchSize * outSize; i++) {
                     gradOutput[i] = batchOutput[i] - batchLabel[i % labelDim];
                 }
 
-                int totalPreds = actualBatchSize * (seqLen + 1);
+                int totalPreds = actualBatchSize * outSize;
                 float mean = 0.0f;
                 for (int i = 0; i < totalPreds; i++) {
                     mean += batchOutput[i];
@@ -357,10 +362,10 @@ public class Trainer {
             }
             System.out.println();
 
-            float[] trainResult = computeLossVit(vit, trainData, trainLabels, localTrainIdx, true);
+            float[] trainResult = computeLossVit(vit, trainData, trainLabels, localTrainIdx, true, outSize);
             float trainLoss = trainResult[0];
             float trainVar = trainResult[1];
-            float valLoss = computeLossVit(vit, valData, valLabels, localValIdx, false)[0];
+            float valLoss = computeLossVit(vit, valData, valLabels, localValIdx, false, outSize)[0];
 
             long epochTime = System.currentTimeMillis() - epochStart;
             printEpochSummary(epoch, trainLoss, trainVar, valLoss, epochTime, lr);
@@ -445,16 +450,15 @@ public class Trainer {
         return new float[]{loss, variance};
     }
 
-    private float[] computeLossVit(ViTGraph vit, float[] data, float[] labels, int[] indices, boolean isTrain) {
+    private float[] computeLossVit(ViTGraph vit, float[] data, float[] labels, int[] indices, boolean isTrain, int outSize) {
         int n = indices.length;
         int valBatchSize = Math.min(1024, n);
         float[] batchInput = new float[valBatchSize * featureDim];
-        float[] batchOutput = new float[valBatchSize * (seqLen + 1)];
+        float[] batchOutput = new float[valBatchSize * outSize];
         float sumSq = 0.0f;
         float sumPred = 0.0f;
         float sumSqPred = 0.0f;
         int processed = 0;
-        int barLength = 50;
         int updateInterval = Math.max(1, n / 100);
         String color = isTrain ? ANSI_YELLOW : ANSI_MAGENTA;
         String prefix = isTrain ? "TRAIN LOSS" : "VAL LOSS";
@@ -473,9 +477,9 @@ public class Trainer {
             for (int i = 0; i < actualBatch; i++) {
                 int idx = indices[start + i];
                 int labelBase = idx * labelDim;
-                for (int p = 0; p < labelDim; p++) {
-                    float pred = batchOutput[i * (seqLen + 1) + p];
-                    float target = labels[labelBase + p];
+                for (int p = 0; p < outSize; p++) {
+                    float pred = batchOutput[i * outSize + p];
+                    float target = (p < labelDim) ? labels[labelBase + p] : 0f;
                     float diff = pred - target;
                     sumSq += diff * diff;
                     sumPred += pred;
@@ -490,7 +494,7 @@ public class Trainer {
                 if (processed >= n) System.out.println();
             }
         }
-        float totalCount = n * labelDim;
+        float totalCount = (float) n * outSize;
         float loss = sumSq / totalCount;
         float mean = sumPred / totalCount;
         float variance = (sumSqPred / totalCount) - (mean * mean);
