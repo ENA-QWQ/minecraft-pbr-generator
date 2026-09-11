@@ -148,7 +148,7 @@ public class Trainer {
         System.out.println("[INFO] Backend: " + backendType.toUpperCase());
         System.out.println("[INFO] Architecture: MLP " + Arrays.toString(layerSizes));
         int heightLabelDim = 1;
-        int labelOffset = 2;
+        int labelOffset = 0;
 
         int[] localTrainIdx = new int[trainSize];
         for (int i = 0; i < trainSize; i++) localTrainIdx[i] = i;
